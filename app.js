@@ -226,6 +226,7 @@
   
       const batch = q.slice(0, BATCH_SIZE);
       const payload = {
+        action: "scan_batch",
         scans: batch.map(({ event_id, station, bibNumber, scanned_at, device_id, operator }) => ({
           event_id,
           station,
