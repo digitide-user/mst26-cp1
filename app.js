@@ -176,18 +176,27 @@
     renderState();
   }
 
-  async function fetchJson(url, options) {
-    const resp = await fetch(url, options);
-    const text = await resp.text();
-    // JSONのときだけparse、エラーHTMLでもそのまま見えるようにする
-    const data = safeJsonParse(text, null);
-    return { ok: resp.ok, status: resp.status, text, data };
+  async function fetchJson(url, options, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+  
+    try {
+      const resp = await fetch(url, { ...options, signal: controller.signal });
+      const text = await resp.text();
+      const data = safeJsonParse(text, null);
+      return { ok: resp.ok, status: resp.status, text, data };
+    } catch (e) {
+      const msg = (e && e.name === "AbortError") ? `Timeout(${timeoutMs}ms)` : String(e);
+      return { ok: false, status: 0, text: msg, data: null };
+    } finally {
+      clearTimeout(t);
+    }
   }
 
   async function syncBatch() {
     const api = getApiBase();
-    const q = loadQueue();
-    if (q.length === 0) {
+    const q0 = loadQueue();
+    if (q0.length === 0) {
       elSyncResult.textContent = "未送信はありません。";
       return;
     }
@@ -195,19 +204,27 @@
       elSyncResult.textContent = "オフラインのため送信できません。";
       return;
     }
-
+  
     elSyncResult.textContent = "送信中…";
-
-    // 仕様: 10件ずつ推奨 :contentReference[oaicite:4]{index=4}
+  
     const BATCH_SIZE = 10;
-    let remaining = q.slice();
     let totalAccepted = 0;
     let totalIgnored = 0;
-
-    while (remaining.length > 0) {
-      const batch = remaining.slice(0, BATCH_SIZE);
-
-      // 仕様: POST /scan_batch { scans:[{event_id, station, bibNumber, scanned_at, device_id, operator}]} :contentReference[oaicite:5]{index=5}
+  
+    // 収束ガード（無限ループ防止）
+    let guard = 0;
+  
+    while (true) {
+      guard++;
+      if (guard > 30) {
+        elSyncResult.textContent = "異常: 収束しません（30回試行）。サーバー応答を確認してください。";
+        return;
+      }
+  
+      const q = loadQueue();
+      if (q.length === 0) break;
+  
+      const batch = q.slice(0, BATCH_SIZE);
       const payload = {
         scans: batch.map(({ event_id, station, bibNumber, scanned_at, device_id, operator }) => ({
           event_id,
@@ -218,36 +235,48 @@
           operator,
         })),
       };
-
-      // Content-Typeは付けない（プリフライト回避） :contentReference[oaicite:6]{index=6}
+  
+      // Content-Typeはブラウザ側では付けない（プリフライト回避）
       const res = await fetchJson(`${api}/scan_batch`, {
         method: "POST",
         body: JSON.stringify(payload),
-      });
-
+      }, 15000);
+  
+      // ここで失敗は必ず見える化
       if (!res.ok || !res.data) {
-        elSyncResult.textContent = `送信失敗: HTTP ${res.status} / ${res.text.slice(0, 200)}`;
-        // 失敗したらこのバッチ以降は止める（未送信のまま残す）
+        elSyncResult.textContent = `送信失敗: HTTP ${res.status} / ${res.text.slice(0, 300)}`;
         return;
       }
-
+  
       const accepted = Array.isArray(res.data.accepted_event_ids) ? res.data.accepted_event_ids : [];
       const ignored = Array.isArray(res.data.ignored_event_ids) ? res.data.ignored_event_ids : [];
-
+  
       totalAccepted += accepted.length;
       totalIgnored += ignored.length;
-
-      // 仕様: accepted と ignored の両方をキューから除外して収束 :contentReference[oaicite:7]{index=7}
+  
+      const beforeLen = q.length;
+  
+      // accepted + ignored をキューから除外（両方 “done”）
       const doneSet = new Set([...accepted, ...ignored]);
-      const currentQueue = loadQueue();
-      const nextQueue = currentQueue.filter((it) => !doneSet.has(it.event_id));
+      const nextQueue = q.filter((it) => !doneSet.has(it.event_id));
       saveQueue(nextQueue);
-
-      remaining = nextQueue;
+  
       renderState();
+  
+      const removed = beforeLen - nextQueue.length;
+  
+      // ★ここが超重要：1件も減らないなら、応答がおかしいので止める
+      if (removed === 0) {
+        elSyncResult.textContent =
+          "収束しません（0件も消えない）。" +
+          " サーバーが event_id を返していない/scan_batchが無効の可能性。 " +
+          `resp=${JSON.stringify(res.data).slice(0, 500)}`;
+        return;
+      }
     }
-
-    elSyncResult.textContent = `同期完了: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${loadQueue().length}`;
+  
+    elSyncResult.textContent =
+      `同期完了: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${loadQueue().length}`;
   }
 
   async function clearQueue() {
