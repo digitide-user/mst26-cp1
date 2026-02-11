@@ -484,7 +484,6 @@
           lastAt = now;
 
           const ok = pushToQueueViaExistingUI(text);
-          if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
           if (ok) beep_();
           if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
         }
