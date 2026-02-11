@@ -486,7 +486,12 @@
     canvas.height = h;
 
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(video, 0, 0, w, h);
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const side = Math.min(vw, vh);
+    const sx = Math.floor((vw - side) / 2);
+    const sy = Math.floor((vh - side) / 2);
+    ctx.drawImage(video, sx, sy, side, side, 0, 0, camCanvas.width, camCanvas.height);
 
     try {
       const img = ctx.getImageData(0, 0, w, h);
