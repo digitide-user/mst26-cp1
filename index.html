@@ -22,6 +22,10 @@
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     ul { padding-left: 18px; margin: 8px 0 0; }
     li { margin: 6px 0; }
+    /* Camera preview: square (width = height) */
+    #camVideo { width: 100%; aspect-ratio: 1 / 1; height: auto !important; max-height: none !important; object-fit: cover; background: #000; border-radius: 18px; display: block; }
+    /* canvasは解析用なので表示しない（レイアウト崩れ防止） */
+    #camCanvas { display: none; }
   </style>
 </head>
 <body>
