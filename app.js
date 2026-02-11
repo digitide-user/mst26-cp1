@@ -363,18 +363,38 @@
 
   function $(id) { return document.getElementById(id); }
 
+  let audioCtx_ = null;
+
+  function warmupAudio_() {
+    try {
+      if (!audioCtx_) audioCtx_ = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx_.state === "suspended") audioCtx_.resume();
+    } catch (_) {}
+  }
+  
   function beep_() {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.connect(g);
-      g.connect(ctx.destination);
+      warmupAudio_();
+      if (!audioCtx_) return;
+  
+      const o = audioCtx_.createOscillator();
+      const g = audioCtx_.createGain();
+  
       o.type = "sine";
-      o.frequency.value = 880;
-      g.gain.value = 0.25;
-      o.start();
-      setTimeout(() => { o.stop(); ctx.close(); }, 90);
+      o.frequency.value = 1500; // ←「ピッ」寄り（好みで 1200〜2000 に調整OK）
+  
+      const now = audioCtx_.currentTime;
+  
+      // ポップ防止：0→上げる→下げる（短いエンベロープ）
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
+  
+      o.connect(g);
+      g.connect(audioCtx_.destination);
+  
+      o.start(now);
+      o.stop(now + 0.11);
     } catch (_) {}
   }
 
@@ -523,6 +543,7 @@
       camStream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = camStream;
       await video.play();
+      warmupAudio_();
 
       if (startBtn) startBtn.disabled = true;
       if (stopBtn)  stopBtn.disabled = false;
