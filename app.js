@@ -372,7 +372,7 @@
       g.connect(ctx.destination);
       o.type = "sine";
       o.frequency.value = 880;
-      g.gain.value = 0.05;
+      g.gain.value = 0.25;
       o.start();
       setTimeout(() => { o.stop(); ctx.close(); }, 90);
     } catch (_) {}
