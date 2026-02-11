@@ -363,6 +363,21 @@
 
   function $(id) { return document.getElementById(id); }
 
+  function beep_() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.type = "sine";
+      o.frequency.value = 880;
+      g.gain.value = 0.05;
+      o.start();
+      setTimeout(() => { o.stop(); ctx.close(); }, 90);
+    } catch (_) {}
+  }
+
   function findManualInputAndAddButton() {
     // 既存UI（手入力）をそのまま使うため、要素を「それっぽく」探す
     const input =
