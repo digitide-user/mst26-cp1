@@ -350,3 +350,93 @@
 
   init();
 })();
+
+// ----- Camera UI (CP1) -----
+(() => {
+  let camStream = null;
+
+  function $(id) { return document.getElementById(id); }
+
+  async function startCamera() {
+    const startBtn = $("camStartBtn");
+    const stopBtn  = $("camStopBtn");
+    const statusEl = $("camStatus");
+    const video    = $("camVideo");
+
+    if (!statusEl || !video) return;
+
+    statusEl.textContent = "カメラ起動中…（権限確認）";
+
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        statusEl.textContent = "このブラウザはカメラAPIに対応していません";
+        return;
+      }
+
+      // iPhone Safari で失敗しにくい指定（environmentは ideal）
+      const constraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width:  { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+
+      camStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = camStream;
+
+      // iOSは play() が必要
+      await video.play();
+
+      if (startBtn) startBtn.disabled = true;
+      if (stopBtn)  stopBtn.disabled = false;
+
+      statusEl.textContent = "カメラ起動OK（映像取得中）";
+    } catch (e) {
+      const name = e && e.name ? e.name : "";
+      const msg  = e && e.message ? e.message : String(e);
+
+      // よくある原因をメッセージ化
+      if (name === "NotAllowedError") {
+        statusEl.textContent = "許可されていません（Safariのサイト設定でカメラを許可）";
+      } else if (name === "NotFoundError") {
+        statusEl.textContent = "カメラが見つかりません（別アプリが使用中の可能性）";
+      } else {
+        statusEl.textContent = `カメラ起動失敗: ${name} ${msg}`.trim();
+      }
+    }
+  }
+
+  function stopCamera() {
+    const startBtn = $("camStartBtn");
+    const stopBtn  = $("camStopBtn");
+    const statusEl = $("camStatus");
+    const video    = $("camVideo");
+
+    try {
+      if (camStream) {
+        camStream.getTracks().forEach(t => t.stop());
+        camStream = null;
+      }
+      if (video) video.srcObject = null;
+      if (statusEl) statusEl.textContent = "停止しました";
+    } finally {
+      if (startBtn) startBtn.disabled = false;
+      if (stopBtn)  stopBtn.disabled = true;
+    }
+  }
+
+  window.addEventListener("DOMContentLoaded", () => {
+    const startBtn = $("camStartBtn");
+    const stopBtn  = $("camStopBtn");
+    const statusEl = $("camStatus");
+
+    if (!startBtn || !stopBtn || !statusEl) return;
+
+    startBtn.addEventListener("click", startCamera);
+    stopBtn.addEventListener("click", stopCamera);
+    stopBtn.disabled = true;
+    statusEl.textContent = "未開始";
+  });
+})();
