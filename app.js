@@ -351,11 +351,133 @@
   init();
 })();
 
-// ----- Camera UI (CP1) -----
+// ----- Camera UI + QR scan (CP1) -----
 (() => {
   let camStream = null;
+  let scanning = false;
+  let rafId = null;
+
+  let lastText = "";
+  let lastAt = 0;
+  const COOLDOWN_MS = 1200;
 
   function $(id) { return document.getElementById(id); }
+
+  function findManualInputAndAddButton() {
+    // 既存UI（手入力）をそのまま使うため、要素を「それっぽく」探す
+    const input =
+      document.querySelector('input[placeholder*="MST26"]') ||
+      document.querySelector('input[type="text"]');
+
+    // 「追加」ボタン（手入力カード内にあるはず）を優先して拾う
+    let addBtn = null;
+    if (input) {
+      const card = input.closest(".card") || input.parentElement;
+      if (card) {
+        addBtn = Array.from(card.querySelectorAll("button"))
+          .find(b => (b.textContent || "").includes("追加"));
+      }
+    }
+    if (!addBtn) {
+      addBtn = Array.from(document.querySelectorAll("button"))
+        .find(b => (b.textContent || "").trim() === "追加");
+    }
+    return { input, addBtn };
+  }
+
+  function normalizeScanText(raw) {
+    const t = String(raw || "").trim();
+
+    // MST26:021 / MST26:21
+    const m = t.match(/^MST26\s*:\s*(\d{1,4})$/i);
+    if (m) return `MST26:${String(parseInt(m[1], 10))}`; // 先頭ゼロは落とす（既存手入力ロジックに任せる）
+
+    // 021 / 21
+    const d = t.match(/^\d{1,4}$/);
+    if (d) return String(parseInt(t, 10));
+
+    return null;
+  }
+
+  function pushToQueueViaExistingUI(rawText) {
+    const normalized = normalizeScanText(rawText);
+    const statusEl = $("camStatus");
+
+    if (!normalized) {
+      if (statusEl) statusEl.textContent = `QR形式が違います: ${String(rawText).slice(0, 40)}`;
+      return false;
+    }
+
+    const { input, addBtn } = findManualInputAndAddButton();
+    if (!input || !addBtn) {
+      if (statusEl) statusEl.textContent = "手入力の入力欄/追加ボタンが見つかりません（HTML構造要確認）";
+      return false;
+    }
+
+    input.value = normalized;
+    // 既存の「追加」処理をそのまま使う（キューのキー/形式を壊さないため）
+    addBtn.click();
+    return true;
+  }
+
+  function stopScanLoop() {
+    scanning = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+
+  function scanLoop() {
+    if (!scanning) return;
+
+    const video = $("camVideo");
+    const canvas = $("camCanvas");
+    const statusEl = $("camStatus");
+
+    if (!video || !canvas) {
+      rafId = requestAnimationFrame(scanLoop);
+      return;
+    }
+
+    // video の準備待ち
+    if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+      rafId = requestAnimationFrame(scanLoop);
+      return;
+    }
+
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+
+    canvas.width = w;
+    canvas.height = h;
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0, w, h);
+
+    try {
+      const img = ctx.getImageData(0, 0, w, h);
+      const qr = (window.jsQR)
+        ? window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" })
+        : null;
+
+      if (qr && qr.data) {
+        const text = String(qr.data).trim();
+        const now = Date.now();
+
+        // 同じQRを画面にかざしっぱなしでも多重追加しない
+        if (text !== lastText || (now - lastAt) > COOLDOWN_MS) {
+          lastText = text;
+          lastAt = now;
+
+          const ok = pushToQueueViaExistingUI(text);
+          if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
+        }
+      }
+    } catch (e) {
+      // 読み取り失敗は握りつぶして次フレームへ（止まるのが一番困る）
+    }
+
+    rafId = requestAnimationFrame(scanLoop);
+  }
 
   async function startCamera() {
     const startBtn = $("camStartBtn");
@@ -373,7 +495,6 @@
         return;
       }
 
-      // iPhone Safari で失敗しにくい指定（environmentは ideal）
       const constraints = {
         audio: false,
         video: {
@@ -385,19 +506,21 @@
 
       camStream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = camStream;
-
-      // iOSは play() が必要
       await video.play();
 
       if (startBtn) startBtn.disabled = true;
       if (stopBtn)  stopBtn.disabled = false;
 
-      statusEl.textContent = "カメラ起動OK（映像取得中）";
+      statusEl.textContent = "カメラ起動OK（QR待ち）";
+
+      // スキャン開始
+      scanning = true;
+      scanLoop();
+
     } catch (e) {
       const name = e && e.name ? e.name : "";
       const msg  = e && e.message ? e.message : String(e);
 
-      // よくある原因をメッセージ化
       if (name === "NotAllowedError") {
         statusEl.textContent = "許可されていません（Safariのサイト設定でカメラを許可）";
       } else if (name === "NotFoundError") {
@@ -413,6 +536,8 @@
     const stopBtn  = $("camStopBtn");
     const statusEl = $("camStatus");
     const video    = $("camVideo");
+
+    stopScanLoop();
 
     try {
       if (camStream) {
