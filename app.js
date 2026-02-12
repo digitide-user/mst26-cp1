@@ -545,12 +545,20 @@
         }
         if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
       }
-      // QRが見えていない状態が少し続いたら、次の読み取りを許可
+      // QRが「連続して」見えていない状態が続いたら、次の読み取りを許可（検出抜けで再ARMしない）
+      if (window.__CP1_NO_QR_SINCE__ === undefined) window.__CP1_NO_QR_SINCE__ = 0;
+      
       if (!qr || !qr.data) {
         const now = Date.now();
-        if (window.__CP1_LAST_SEEN_AT__ && (now - window.__CP1_LAST_SEEN_AT__) > 400) {
+        if (window.__CP1_NO_QR_SINCE__ === 0) window.__CP1_NO_QR_SINCE__ = now;
+      
+        // 0.7秒「連続して」読めなかったときだけ再ARM
+        if (!window.__CP1_ARMED__ && (now - window.__CP1_NO_QR_SINCE__) > 700) {
           window.__CP1_ARMED__ = true;
         }
+      } else {
+        // QRが見えているなら未検出連続時間をリセット
+        window.__CP1_NO_QR_SINCE__ = 0;
       }
     } catch (e) {
       // 読み取り失敗は握りつぶして次フレームへ（止まるのが一番困る）
