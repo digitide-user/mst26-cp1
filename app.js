@@ -508,57 +508,50 @@
       if (window.__CP1_LAST_QUEUED__ === undefined) window.__CP1_LAST_QUEUED__ = "";
       if (window.__CP1_LAST_QUEUED_AT__ === undefined) window.__CP1_LAST_QUEUED_AT__ = 0;
       
-      if (qr && qr.data) {
+      const now = Date.now();
+      const hasQR = !!(qr && qr.data);
+
+      if (hasQR) {
         const text = String(qr.data).trim();
-        const now = Date.now();
         window.__CP1_LAST_SEEN_AT__ = now;
-      
-        // ① いま「枠から外して待つ」状態なら、外すまで追加しない（固まり連打を止める）
+
+        // すでに読んだ後は「枠から外す」まで追加しない（入れっぱなしで増殖しない）
         if (!window.__CP1_ARMED__) {
           if (statusEl) statusEl.textContent = "読取済み：QRを枠から外してください";
           return;
         }
-      
-        // ② 連続2回読みをさらに抑える（読取直後0.8秒は追加しない）
-        if ((now - lastAt) < 800) {
+
+        // 読取直後の二重追加を抑える（0.8秒）
+        if (now - window.__CP1_LAST_QUEUED_AT__ < 800) {
           if (statusEl) statusEl.textContent = "待機中…";
           return;
         }
-      
-        // ③ 同じQRを短時間で重複キューに入れない（60秒）
+
+        // 同じQRは60秒以内に重複キューに入れない
         if (text === window.__CP1_LAST_QUEUED__ && (now - window.__CP1_LAST_QUEUED_AT__) < 60000) {
-          window.__CP1_ARMED__ = false;
-          if (statusEl) statusEl.textContent = `重複: ${text}`;
+          window.__CP1_ARMED__ = false; // 外すまで待つ
+          if (statusEl) statusEl.textContent = `重複: ${text}（外して次へ）`;
           return;
         }
-      
-        // ここで初めて追加
-        lastText = text;
-        lastAt = now;
-      
+
         const ok = pushToQueueViaExistingUI(text);
         if (ok) {
           beep_();
           window.__CP1_LAST_QUEUED__ = text;
           window.__CP1_LAST_QUEUED_AT__ = now;
-          window.__CP1_ARMED__ = false; // ← 次は「枠から外す」まで追加しない
+          window.__CP1_ARMED__ = false; // ← ここが「入れっぱなし増殖」を止める本体
         }
+
         if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
+        return;
       }
-      // QRが「連続して」見えていない状態が続いたら、次の読み取りを許可（検出抜けで再ARMしない）
-      if (window.__CP1_NO_QR_SINCE__ === undefined) window.__CP1_NO_QR_SINCE__ = 0;
-      
-      if (!qr || !qr.data) {
-        const now = Date.now();
-        if (window.__CP1_NO_QR_SINCE__ === 0) window.__CP1_NO_QR_SINCE__ = now;
-      
-        // 0.7秒「連続して」読めなかったときだけ再ARM
-        if (!window.__CP1_ARMED__ && (now - window.__CP1_NO_QR_SINCE__) > 700) {
+
+      // QRが「見えていない状態」が 0.7秒 続いたら再ARM（枠から外したら次が読める）
+      if (!hasQR) {
+        if (!window.__CP1_ARMED__ && window.__CP1_LAST_SEEN_AT__ && (now - window.__CP1_LAST_SEEN_AT__) > 700) {
           window.__CP1_ARMED__ = true;
+          if (statusEl) statusEl.textContent = "QR待ち";
         }
-      } else {
-        // QRが見えているなら未検出連続時間をリセット
-        window.__CP1_NO_QR_SINCE__ = 0;
       }
     } catch (e) {
       // 読み取り失敗は握りつぶして次フレームへ（止まるのが一番困る）
