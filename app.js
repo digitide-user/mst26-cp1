@@ -502,19 +502,48 @@
         ? window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" })
         : null;
 
+      // 追加：一度読んだら「QRが枠から消えるまで」次を追加しない
+      if (window.__CP1_ARMED__ === undefined) window.__CP1_ARMED__ = true;
+      if (window.__CP1_LAST_SEEN_AT__ === undefined) window.__CP1_LAST_SEEN_AT__ = 0;
+      if (window.__CP1_LAST_QUEUED__ === undefined) window.__CP1_LAST_QUEUED__ = "";
+      if (window.__CP1_LAST_QUEUED_AT__ === undefined) window.__CP1_LAST_QUEUED_AT__ = 0;
+      
       if (qr && qr.data) {
         const text = String(qr.data).trim();
         const now = Date.now();
-
-        // 同じQRを画面にかざしっぱなしでも多重追加しない
-        if (text !== lastText || (now - lastAt) > COOLDOWN_MS) {
-          lastText = text;
-          lastAt = now;
-
-          const ok = pushToQueueViaExistingUI(text);
-          if (ok) beep_();
-          if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
+        window.__CP1_LAST_SEEN_AT__ = now;
+      
+        // ① いま「枠から外して待つ」状態なら、外すまで追加しない（固まり連打を止める）
+        if (!window.__CP1_ARMED__) {
+          if (statusEl) statusEl.textContent = "読取済み：QRを枠から外してください";
+          return;
         }
+      
+        // ② 連続2回読みをさらに抑える（読取直後0.8秒は追加しない）
+        if ((now - lastAt) < 800) {
+          if (statusEl) statusEl.textContent = "待機中…";
+          return;
+        }
+      
+        // ③ 同じQRを短時間で重複キューに入れない（60秒）
+        if (text === window.__CP1_LAST_QUEUED__ && (now - window.__CP1_LAST_QUEUED_AT__) < 60000) {
+          window.__CP1_ARMED__ = false;
+          if (statusEl) statusEl.textContent = `重複: ${text}`;
+          return;
+        }
+      
+        // ここで初めて追加
+        lastText = text;
+        lastAt = now;
+      
+        const ok = pushToQueueViaExistingUI(text);
+        if (ok) {
+          beep_();
+          window.__CP1_LAST_QUEUED__ = text;
+          window.__CP1_LAST_QUEUED_AT__ = now;
+          window.__CP1_ARMED__ = false; // ← 次は「枠から外す」まで追加しない
+        }
+        if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
       }
     } catch (e) {
       // 読み取り失敗は握りつぶして次フレームへ（止まるのが一番困る）
