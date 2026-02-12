@@ -168,6 +168,15 @@
     };
 
     const q = loadQueue();
+
+    // 同じbibが既に未送信キューにあるなら追加しない（増殖止血）
+    if (q.some(it => String(it.bibNumber) === String(bib))) {
+      elAddResult.textContent = `重複のため追加しません: bib=${bib}（未送信 ${q.length}）`;
+      elInput.value = "";
+      renderState();
+      return;
+    }
+    
     q.push(item);
     saveQueue(q);
 
@@ -507,8 +516,8 @@
     }
   
     input.value = normalized;
-    if (statusEl) statusEl.textContent = `DEBUG: click blocked (${normalized})`;
-    return false;
+    addBtn.click();
+    return true;
   }
 
   function stopScanLoop() {
