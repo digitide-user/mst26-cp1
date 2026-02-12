@@ -359,7 +359,7 @@
 
   let lastText = "";
   let lastAt = 0;
-  const COOLDOWN_MS = 1200;
+  const COOLDOWN_MS = 800;
 
   function $(id) { return document.getElementById(id); }
 
@@ -491,7 +491,7 @@
     const side = Math.min(vw, vh);
     const sx = Math.floor((vw - side) / 2);
     const sy = Math.floor((vh - side) / 2);
-    ctx.drawImage(video, sx, sy, side, side, 0, 0, camCanvas.width, camCanvas.height);
+    ctx.(video, sx, sy, side, side, 0, 0, camCanvas.width, camCanvas.height);
 
     try {
       const img = ctx.getImageData(0, 0, w, h);
