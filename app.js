@@ -2,6 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
+  const BUILD_VERSION = "build: 2026-02-12T22:50:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -36,6 +37,72 @@
   // ===== Helpers =====
   function safeJsonParse(s, fallback) {
     try { return JSON.parse(s); } catch { return fallback; }
+  }
+
+  // 旧フォーマットも含め、アイテムから bib の数値文字列キーを抽出
+  function extractBibKey(it) {
+    const toNumStr = (v) => {
+      const num = parseInt(v, 10);
+      return Number.isFinite(num) && num > 0 ? String(num) : null;
+    };
+    if (it == null) return null;
+    if (typeof it === "number" || typeof it === "bigint") return toNumStr(it);
+    if (typeof it === "string") {
+      const m = it.match(/(\d{1,6})/);
+      return m ? toNumStr(m[1]) : null;
+    }
+    if (typeof it === "object") {
+      if (it.bibNumber != null) return toNumStr(it.bibNumber);
+      if (it.bib != null) return toNumStr(it.bib);
+      const raw = it.input ?? it.normalized ?? it.text ?? it.rawText ?? "";
+      const m = String(raw).match(/(\d{1,6})/);
+      return m ? toNumStr(m[1]) : null;
+    }
+    return null;
+  }
+
+  // アイテムを（可能なら）現在の正規形式に整える。event_id 等が無い場合は生成する
+  function canonicalizeItem(it) {
+    const key = extractBibKey(it);
+    if (!key) return null;
+
+    // 既に正規形式ならそのまま返す
+    if (it && typeof it === "object" && it.event_id && it.scanned_at && (it.bibNumber != null)) {
+      return it;
+    }
+
+    const api = getApiBase();
+    const devId = getOrCreateDeviceId();
+    const op = getOperator();
+
+    const now = new Date();
+    const scanned_at = formatISOWithOffset(now);
+    const seq = incSeq();
+    const event_id = `${devId}-${now.getTime()}-${seq}-${key}`;
+
+    return {
+      event_id,
+      station: "cp1",
+      bibNumber: parseInt(key, 10),
+      scanned_at,
+      device_id: devId,
+      operator: op,
+      _api: api,
+    };
+  }
+
+  // 配列を正規化＋重複除去（同一 bib は先勝ち）
+  function normalizeAndDedupe(arr) {
+    const out = [];
+    const seen = new Set();
+    for (const it of Array.isArray(arr) ? arr : []) {
+      const key = extractBibKey(it);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const canon = canonicalizeItem(it);
+      if (canon) out.push(canon);
+    }
+    return out;
   }
 
   function getApiBase() {
@@ -108,43 +175,41 @@
   }
 
   function loadQueue() {
-    return safeJsonParse(localStorage.getItem(KEY.queue) || "[]", []);
+    const raw = safeJsonParse(localStorage.getItem(KEY.queue) || "[]", []);
+    const normalized = normalizeAndDedupe(raw);
+    // 必要があればストレージへ反映（正規化を一度で固定化）
+    if (JSON.stringify(raw) !== JSON.stringify(normalized)) {
+      try { localStorage.setItem(KEY.queue, JSON.stringify(normalized)); } catch(_) {}
+    }
+    return normalized;
   }
   function saveQueue(q) {
-    localStorage.setItem(KEY.queue, JSON.stringify(q));
+    const normalized = normalizeAndDedupe(q);
+    localStorage.setItem(KEY.queue, JSON.stringify(normalized));
   }
 
-  // 手入力/スキャン共通のキュー投入ロジック
+  // 手入力/スキャン共通のキュー投入ロジック（原子的 + 5秒ロック）
+  const __enqueueLock__ = Object.create(null); // { [bibKey]: timestamp }
+  const ENQUEUE_LOCK_MS = 5000;
   function enqueueBib(bib) {
     const n = parseInt(bib, 10);
     if (!Number.isFinite(n) || n <= 0) {
       return { ok: false, reason: "invalid" };
     }
 
-    // 既存アイテムから bib を抽出して重複判定（旧フォーマットにも対応）
-    const extractBibKey = (it) => {
-      const toNumStr = (v) => {
-        const num = parseInt(v, 10);
-        return Number.isFinite(num) && num > 0 ? String(num) : null;
-      };
-      if (it == null) return null;
-      if (typeof it === "number" || typeof it === "bigint") return toNumStr(it);
-      if (typeof it === "string") {
-        const m = it.match(/(\d{1,6})/);
-        return m ? toNumStr(m[1]) : null;
-      }
-      if (typeof it === "object") {
-        if (it.bibNumber != null) return toNumStr(it.bibNumber);
-        if (it.bib != null) return toNumStr(it.bib);
-        const raw = it.input ?? it.normalized ?? it.text ?? it.rawText ?? "";
-        const m = String(raw).match(/(\d{1,6})/);
-        return m ? toNumStr(m[1]) : null;
-      }
-      return null;
-    };
+    const key = String(n);
+
+    // 原子的ロック：同一bibの短時間再入を即時拒否
+    const nowTs = Date.now();
+    const lastTs = __enqueueLock__[key] || 0;
+    if (nowTs - lastTs < ENQUEUE_LOCK_MS) {
+      const len = loadQueue().length;
+      return { ok: false, reason: "duplicate", length: len };
+    }
+    __enqueueLock__[key] = nowTs;
 
     const q = loadQueue();
-    const key = String(n);
+    // 既存重複も改めて確認（最後の砦は saveQueue でも実施）
     const dup = Array.isArray(q) && q.some((it) => extractBibKey(it) === key);
     if (dup) {
       return { ok: false, reason: "duplicate", length: q.length };
@@ -171,7 +236,7 @@
 
     q.push(item);
     saveQueue(q);
-    return { ok: true, length: q.length, item };
+    return { ok: true, length: loadQueue().length, item };
   }
 
   function renderNet() {
@@ -372,6 +437,18 @@
   function init() {
     renderNet();
     renderState();
+    // BUILD版本をフッター的に表示
+    try {
+      const el = document.createElement("div");
+      el.id = "buildInfo";
+      el.className = "mono";
+      el.style.fontSize = "12px";
+      el.style.opacity = "0.7";
+      el.style.marginTop = "8px";
+      el.textContent = BUILD_VERSION;
+      const container = document.body || document.documentElement;
+      if (container) container.appendChild(el);
+    } catch(_) {}
 
     window.addEventListener("online", () => { renderNet(); });
     window.addEventListener("offline", () => { renderNet(); });
