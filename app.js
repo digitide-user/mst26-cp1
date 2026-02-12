@@ -437,18 +437,30 @@
   function pushToQueueViaExistingUI(rawText) {
     const normalized = normalizeScanText(rawText);
     const statusEl = $("camStatus");
-
+  
     if (!normalized) {
       if (statusEl) statusEl.textContent = `QR形式が違います: ${String(rawText).slice(0, 40)}`;
       return false;
     }
-
+  
+    // ★追加：スキャナ経由の「同じbib連打」を止める（未送信増殖の止血）
+    if (window.__CP1_RECENT_BIBS__ === undefined) window.__CP1_RECENT_BIBS__ = {};
+    const bibKey = String(parseInt(String(normalized).replace(/\D/g, ""), 10));
+    const now = Date.now();
+    const TTL_MS = 60 * 1000; // 60秒（必要なら後で調整）
+  
+    if (bibKey && window.__CP1_RECENT_BIBS__[bibKey] && (now - window.__CP1_RECENT_BIBS__[bibKey]) < TTL_MS) {
+      if (statusEl) statusEl.textContent = `重複: ${bibKey}（追加しません）`;
+      return false; // ← ここで止めるので addBtn.click() が走らず、未送信が増えない
+    }
+    window.__CP1_RECENT_BIBS__[bibKey] = now;
+  
     const { input, addBtn } = findManualInputAndAddButton();
     if (!input || !addBtn) {
       if (statusEl) statusEl.textContent = "手入力の入力欄/追加ボタンが見つかりません（HTML構造要確認）";
       return false;
     }
-
+  
     input.value = normalized;
     // 既存の「追加」処理をそのまま使う（キューのキー/形式を壊さないため）
     addBtn.click();
