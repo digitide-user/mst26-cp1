@@ -507,12 +507,17 @@
       if (window.__CP1_LAST_SEEN_AT__ === undefined) window.__CP1_LAST_SEEN_AT__ = 0;
       if (window.__CP1_LAST_QUEUED__ === undefined) window.__CP1_LAST_QUEUED__ = "";
       if (window.__CP1_LAST_QUEUED_AT__ === undefined) window.__CP1_LAST_QUEUED_AT__ = 0;
+      if (window.__CP1_LAST_QUEUED_BIB__ === undefined) window.__CP1_LAST_QUEUED_BIB__ = "";
       
       const now = Date.now();
       const hasQR = !!(qr && qr.data);
 
       if (hasQR) {
         const text = String(qr.data).trim();
+        const m = text.match(/MST26\s*:\s*0*([0-9]{1,4})/i);
+        if (!m) { if (statusEl) statusEl.textContent = `無効: ${text}`; return; }
+        const bibKey = String(parseInt(m[1], 10));
+
         window.__CP1_LAST_SEEN_AT__ = now;
 
         // すでに読んだ後は「枠から外す」まで追加しない（入れっぱなしで増殖しない）
@@ -527,10 +532,11 @@
           return;
         }
 
-        // 同じQRは60秒以内に重複キューに入れない
-        if (text === window.__CP1_LAST_QUEUED__ && (now - window.__CP1_LAST_QUEUED_AT__) < 60000) {
-          window.__CP1_ARMED__ = false; // 外すまで待つ
-          if (statusEl) statusEl.textContent = `重複: ${text}（外して次へ）`;
+        if (window.__CP1_LAST_QUEUED_BIB__ === undefined) window.__CP1_LAST_QUEUED_BIB__ = "";
+
+        // 同じbibは10分以内は重複追加しない（増殖防止の安全弁）
+        if (bibKey === window.__CP1_LAST_QUEUED_BIB__ && (now - window.__CP1_LAST_QUEUED_AT__) < 10 * 60 * 1000) {
+          if (statusEl) statusEl.textContent = `重複: ${bibKey}（外して次へ）`;
           return;
         }
 
@@ -539,6 +545,7 @@
           beep_();
           window.__CP1_LAST_QUEUED__ = text;
           window.__CP1_LAST_QUEUED_AT__ = now;
+          window.__CP1_LAST_QUEUED_BIB__ = bibKey;
           window.__CP1_ARMED__ = false; // ← ここが「入れっぱなし増殖」を止める本体
         }
 
