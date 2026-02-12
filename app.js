@@ -443,17 +443,38 @@
       return false;
     }
   
-    // ★追加：スキャナ経由の「同じbib連打」を止める（未送信増殖の止血）
-    if (window.__CP1_RECENT_BIBS__ === undefined) window.__CP1_RECENT_BIBS__ = {};
-    const bibKey = String(parseInt(String(normalized).replace(/\D/g, ""), 10));
-    const now = Date.now();
-    const TTL_MS = 60 * 1000; // 60秒（必要なら後で調整）
+    // bibKey（比較用）: "MST26:054" でも "54" でも最終的に "54" にそろえる
+    const bibKey = (() => {
+      const s = String(normalized);
+      const m = s.match(/(\d{1,4})/);
+      if (!m) return "";
+      return String(parseInt(m[1], 10)); // 先頭ゼロ除去
+    })();
   
-    if (bibKey && window.__CP1_RECENT_BIBS__[bibKey] && (now - window.__CP1_RECENT_BIBS__[bibKey]) < TTL_MS) {
-      if (statusEl) statusEl.textContent = `重複: ${bibKey}（追加しません）`;
-      return false; // ← ここで止めるので addBtn.click() が走らず、未送信が増えない
+    // 既に未送信キューに同じ bib があれば、追加しない（増殖止血）
+    try {
+      const q = JSON.parse(localStorage.getItem(KEY.queue) || "[]");
+      if (Array.isArray(q) && bibKey) {
+        const exists = q.some((it) => {
+          const raw =
+            typeof it === "string"
+              ? it
+              : (it && typeof it === "object"
+                  ? (it.bib ?? it.bibNumber ?? it.input ?? it.normalized ?? it.text ?? it.rawText)
+                  : "");
+          const mm = String(raw || "").match(/(\d{1,4})/);
+          if (!mm) return false;
+          return String(parseInt(mm[1], 10)) === bibKey;
+        });
+  
+        if (exists) {
+          if (statusEl) statusEl.textContent = `重複: bib=${bibKey}（追加しません）`;
+          return false;
+        }
+      }
+    } catch (_) {
+      // ここは失敗しても追加処理へ進む（止まるよりマシ）
     }
-    window.__CP1_RECENT_BIBS__[bibKey] = now;
   
     const { input, addBtn } = findManualInputAndAddButton();
     if (!input || !addBtn) {
@@ -462,7 +483,6 @@
     }
   
     input.value = normalized;
-    // 既存の「追加」処理をそのまま使う（キューのキー/形式を壊さないため）
     addBtn.click();
     return true;
   }
