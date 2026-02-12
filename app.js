@@ -114,6 +114,66 @@
     localStorage.setItem(KEY.queue, JSON.stringify(q));
   }
 
+  // 手入力/スキャン共通のキュー投入ロジック
+  function enqueueBib(bib) {
+    const n = parseInt(bib, 10);
+    if (!Number.isFinite(n) || n <= 0) {
+      return { ok: false, reason: "invalid" };
+    }
+
+    // 既存アイテムから bib を抽出して重複判定（旧フォーマットにも対応）
+    const extractBibKey = (it) => {
+      const toNumStr = (v) => {
+        const num = parseInt(v, 10);
+        return Number.isFinite(num) && num > 0 ? String(num) : null;
+      };
+      if (it == null) return null;
+      if (typeof it === "number" || typeof it === "bigint") return toNumStr(it);
+      if (typeof it === "string") {
+        const m = it.match(/(\d{1,6})/);
+        return m ? toNumStr(m[1]) : null;
+      }
+      if (typeof it === "object") {
+        if (it.bibNumber != null) return toNumStr(it.bibNumber);
+        if (it.bib != null) return toNumStr(it.bib);
+        const raw = it.input ?? it.normalized ?? it.text ?? it.rawText ?? "";
+        const m = String(raw).match(/(\d{1,6})/);
+        return m ? toNumStr(m[1]) : null;
+      }
+      return null;
+    };
+
+    const q = loadQueue();
+    const key = String(n);
+    const dup = Array.isArray(q) && q.some((it) => extractBibKey(it) === key);
+    if (dup) {
+      return { ok: false, reason: "duplicate", length: q.length };
+    }
+
+    const api = getApiBase();
+    const devId = getOrCreateDeviceId();
+    const op = getOperator();
+
+    const now = new Date();
+    const scanned_at = formatISOWithOffset(now);
+    const seq = incSeq();
+    const event_id = `${devId}-${now.getTime()}-${seq}-${n}`;
+
+    const item = {
+      event_id,
+      station: "cp1",
+      bibNumber: n,
+      scanned_at,
+      device_id: devId,
+      operator: op,
+      _api: api,
+    };
+
+    q.push(item);
+    saveQueue(q);
+    return { ok: true, length: q.length, item };
+  }
+
   function renderNet() {
     const online = navigator.onLine;
     elNet.textContent = `状態: ${online ? "オンライン" : "オフライン"}（${formatISOWithOffset(new Date())}）`;
@@ -148,39 +208,19 @@
       return;
     }
 
-    const api = getApiBase();
-    const devId = getOrCreateDeviceId();
-    const op = getOperator();
-
-    const now = new Date();
-    const scanned_at = formatISOWithOffset(now);
-    const seq = incSeq();
-    const event_id = `${devId}-${now.getTime()}-${seq}-${bib}`;
-
-    const item = {
-      event_id,
-      station: "cp1",
-      bibNumber: bib,
-      scanned_at,
-      device_id: devId,
-      operator: op,
-      _api: api,
-    };
-
-    const q = loadQueue();
-
-    // 同じbibが既に未送信キューにあるなら追加しない（増殖止血）
-    if (q.some(it => String(it.bibNumber) === String(bib))) {
-      elAddResult.textContent = `重複のため追加しません: bib=${bib}（未送信 ${q.length}）`;
+    const res = enqueueBib(bib);
+    if (!res.ok && res.reason === "duplicate") {
+      elAddResult.textContent = `重複のため追加しません: bib=${bib}（未送信 ${res.length}）`;
       elInput.value = "";
       renderState();
       return;
     }
-    
-    q.push(item);
-    saveQueue(q);
+    if (!res.ok) {
+      elAddResult.textContent = `追加失敗: bib=${bib}`;
+      return;
+    }
 
-    elAddResult.textContent = `追加しました: bib=${bib}（未送信 ${q.length}）`;
+    elAddResult.textContent = `追加しました: bib=${bib}（未送信 ${res.length}）`;
     elInput.value = "";
     renderState();
   }
@@ -358,6 +398,8 @@
   }
 
   init();
+  // スキャン側からも利用できるよう公開
+  window.enqueueBib = enqueueBib;
 })();
 
 // ----- Camera UI + QR scan (CP1) -----
@@ -446,77 +488,34 @@
   function pushToQueueViaExistingUI(rawText) {
     const normalized = normalizeScanText(rawText);
     const statusEl = $("camStatus");
-  
+
     if (!normalized) {
       if (statusEl) statusEl.textContent = `QR形式が違います: ${String(rawText).slice(0, 40)}`;
       return false;
     }
-  
-    // bibKey（比較用）: "MST26:054" でも "54" でも最終的に "54" にそろえる
-    const bibKey = (() => {
-      const s = String(normalized);
-      const m = s.match(/(\d{1,4})/);
-      if (!m) return "";
-      return String(parseInt(m[1], 10)); // 先頭ゼロ除去
-    })();
 
-    // 画面の「未送信キュー」に同じbibが見えているなら追加しない（止血）
-    try {
-      const bib = String(bibKey || "");
-      if (bib) {
-        // 「未送信キュー」を含むカードを探して、その中の li だけ見る
-        const cards = Array.from(document.querySelectorAll(".card"));
-        const qCard = cards.find(el => (el.textContent || "").includes("未送信キュー"));
-        const scope = qCard || document;
-  
-        const existsOnScreen = Array.from(scope.querySelectorAll("li")).some(li => {
-          const t = (li.textContent || "").trim();
-          // 表示が「54 / 2026-...」なので先頭一致で判定
-          return t.startsWith(bib + " /");
-        });
-  
-        if (existsOnScreen) {
-          if (statusEl) statusEl.textContent = `重複: bib=${bib}（追加しません）`;
-          return false;
-        }
-      }
-    } catch (_) {
-      // 失敗しても追加処理へ
-    }
-  
-    // 既に未送信キューに同じ bib があれば、追加しない（増殖止血）
-    try {
-      const q = JSON.parse(localStorage.getItem(KEY.queue) || "[]");
-      if (Array.isArray(q) && bibKey) {
-        const exists = q.some((it) => {
-          const raw =
-            typeof it === "string"
-              ? it
-              : (it && typeof it === "object"
-                  ? (it.bib ?? it.bibNumber ?? it.input ?? it.normalized ?? it.text ?? it.rawText)
-                  : "");
-          const mm = String(raw || "").match(/(\d{1,4})/);
-          if (!mm) return false;
-          return String(parseInt(mm[1], 10)) === bibKey;
-        });
-  
-        if (exists) {
-          if (statusEl) statusEl.textContent = `重複: bib=${bibKey}（追加しません）`;
-          return false;
-        }
-      }
-    } catch (_) {
-      // ここは失敗しても追加処理へ進む（止まるよりマシ）
-    }
-  
-    const { input, addBtn } = findManualInputAndAddButton();
-    if (!input || !addBtn) {
-      if (statusEl) statusEl.textContent = "手入力の入力欄/追加ボタンが見つかりません（HTML構造要確認）";
+    const m = String(normalized).match(/(\d{1,4})/);
+    if (!m) {
+      if (statusEl) statusEl.textContent = `QR形式が違います: ${String(normalized).slice(0, 40)}`;
       return false;
     }
-  
-    input.value = normalized;
-    addBtn.click();
+
+    const bib = parseInt(m[1], 10);
+    if (!window.enqueueBib) {
+      if (statusEl) statusEl.textContent = "内部エラー: enqueueBibが未定義です";
+      return false;
+    }
+
+    const res = window.enqueueBib(bib);
+    if (!res.ok && res.reason === "duplicate") {
+      if (statusEl) statusEl.textContent = `重複: bib=${bib}（追加しません）`;
+      return false;
+    }
+    if (!res.ok) {
+      if (statusEl) statusEl.textContent = `追加失敗: bib=${bib}`;
+      return false;
+    }
+
     return true;
   }
 
