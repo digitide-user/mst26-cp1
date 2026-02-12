@@ -507,8 +507,8 @@
     }
   
     input.value = normalized;
-    addBtn.click();
-    return true;
+    if (statusEl) statusEl.textContent = `DEBUG: click blocked (${normalized})`;
+    return false;
   }
 
   function stopScanLoop() {
