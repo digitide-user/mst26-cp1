@@ -450,6 +450,30 @@
       if (!m) return "";
       return String(parseInt(m[1], 10)); // 先頭ゼロ除去
     })();
+
+    // 画面の「未送信キュー」に同じbibが見えているなら追加しない（止血）
+    try {
+      const bib = String(bibKey || "");
+      if (bib) {
+        // 「未送信キュー」を含むカードを探して、その中の li だけ見る
+        const cards = Array.from(document.querySelectorAll(".card"));
+        const qCard = cards.find(el => (el.textContent || "").includes("未送信キュー"));
+        const scope = qCard || document;
+  
+        const existsOnScreen = Array.from(scope.querySelectorAll("li")).some(li => {
+          const t = (li.textContent || "").trim();
+          // 表示が「54 / 2026-...」なので先頭一致で判定
+          return t.startsWith(bib + " /");
+        });
+  
+        if (existsOnScreen) {
+          if (statusEl) statusEl.textContent = `重複: bib=${bib}（追加しません）`;
+          return false;
+        }
+      }
+    } catch (_) {
+      // 失敗しても追加処理へ
+    }
   
     // 既に未送信キューに同じ bib があれば、追加しない（増殖止血）
     try {
