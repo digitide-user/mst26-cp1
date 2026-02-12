@@ -545,6 +545,13 @@
         }
         if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
       }
+      // QRが見えていない状態が少し続いたら、次の読み取りを許可
+      if (!qr || !qr.data) {
+        const now = Date.now();
+        if (window.__CP1_LAST_SEEN_AT__ && (now - window.__CP1_LAST_SEEN_AT__) > 400) {
+          window.__CP1_ARMED__ = true;
+        }
+      }
     } catch (e) {
       // 読み取り失敗は握りつぶして次フレームへ（止まるのが一番困る）
     }
