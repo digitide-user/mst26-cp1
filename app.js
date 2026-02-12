@@ -412,6 +412,11 @@
   let lastAt = 0;
   const COOLDOWN_MS = 1200;
 
+  // 同一QR保持時の過剰 enqueue を抑制するための保険ガード
+  let lastSeenBib_ = "";
+  let lastEnqueueAt_ = 0;
+  const ENQUEUE_COOLDOWN_MS = 2000; // 同一bibに対する最短間隔
+
   function $(id) { return document.getElementById(id); }
 
   let audioCtx_ = null;
@@ -449,75 +454,9 @@
     } catch (_) {}
   }
 
-  function findManualInputAndAddButton() {
-    // 既存UI（手入力）をそのまま使うため、要素を「それっぽく」探す
-    const input =
-      document.querySelector('input[placeholder*="MST26"]') ||
-      document.querySelector('input[type="text"]');
+  // UIクリック合成のための探索/正規化関数は不要になりました（スキャンは enqueueBib を直接呼びます）
 
-    // 「追加」ボタン（手入力カード内にあるはず）を優先して拾う
-    let addBtn = null;
-    if (input) {
-      const card = input.closest(".card") || input.parentElement;
-      if (card) {
-        addBtn = Array.from(card.querySelectorAll("button"))
-          .find(b => (b.textContent || "").includes("追加"));
-      }
-    }
-    if (!addBtn) {
-      addBtn = Array.from(document.querySelectorAll("button"))
-        .find(b => (b.textContent || "").trim() === "追加");
-    }
-    return { input, addBtn };
-  }
-
-  function normalizeScanText(raw) {
-    const t = String(raw || "").trim();
-
-    // MST26:021 / MST26:21
-    const m = t.match(/^MST26\s*:\s*(\d{1,4})$/i);
-    if (m) return `MST26:${String(parseInt(m[1], 10))}`; // 先頭ゼロは落とす（既存手入力ロジックに任せる）
-
-    // 021 / 21
-    const d = t.match(/^\d{1,4}$/);
-    if (d) return String(parseInt(t, 10));
-
-    return null;
-  }
-
-  function pushToQueueViaExistingUI(rawText) {
-    const normalized = normalizeScanText(rawText);
-    const statusEl = $("camStatus");
-
-    if (!normalized) {
-      if (statusEl) statusEl.textContent = `QR形式が違います: ${String(rawText).slice(0, 40)}`;
-      return false;
-    }
-
-    const m = String(normalized).match(/(\d{1,4})/);
-    if (!m) {
-      if (statusEl) statusEl.textContent = `QR形式が違います: ${String(normalized).slice(0, 40)}`;
-      return false;
-    }
-
-    const bib = parseInt(m[1], 10);
-    if (!window.enqueueBib) {
-      if (statusEl) statusEl.textContent = "内部エラー: enqueueBibが未定義です";
-      return false;
-    }
-
-    const res = window.enqueueBib(bib);
-    if (!res.ok && res.reason === "duplicate") {
-      if (statusEl) statusEl.textContent = `重複: bib=${bib}（追加しません）`;
-      return false;
-    }
-    if (!res.ok) {
-      if (statusEl) statusEl.textContent = `追加失敗: bib=${bib}`;
-      return false;
-    }
-
-    return true;
-  }
+  // 以前のUIクリック合成経路は撤去しました（スキャンは enqueueBib を直接呼びます）
 
   function stopScanLoop() {
     scanning = false;
@@ -578,9 +517,11 @@
 
       if (hasQR) {
         const text = String(qr.data).trim();
-        const m = text.match(/MST26\s*:\s*0*([0-9]{1,4})/i);
-        if (!m) { if (statusEl) statusEl.textContent = `無効: ${text}`; return; }
-        const bibKey = String(parseInt(m[1], 10));
+        // MST26:021 / MST26:21 / 021 / 21 を許容
+        let bibMatch = text.match(/MST26\s*:\s*0*([0-9]{1,6})/i) || text.match(/^0*(\d{1,6})$/);
+        if (!bibMatch) { if (statusEl) statusEl.textContent = `無効: ${text}`; return; }
+        const bibNum = parseInt(bibMatch[1], 10);
+        const bibKey = String(bibNum);
 
         window.__CP1_LAST_SEEN_AT__ = now;
 
@@ -598,18 +539,34 @@
 
         if (window.__CP1_LAST_QUEUED_BIB__ === undefined) window.__CP1_LAST_QUEUED_BIB__ = "";
 
+        // 追加の保険：同一QR保持中に連打しない
+        if (bibKey === lastSeenBib_ && (now - lastEnqueueAt_) < ENQUEUE_COOLDOWN_MS) {
+          if (statusEl) statusEl.textContent = "待機中…";
+          return;
+        }
+
         // 同じbibは10分以内は重複追加しない（増殖防止の安全弁）
         if (bibKey === window.__CP1_LAST_QUEUED_BIB__ && (now - window.__CP1_LAST_QUEUED_AT__) < 10 * 60 * 1000) {
           if (statusEl) statusEl.textContent = `重複: ${bibKey}（外して次へ）`;
           return;
         }
 
-        const ok = pushToQueueViaExistingUI(text);
+        // UIクリック合成は行わず、直接 enqueueBib を呼ぶ
+        let ok = false;
+        try {
+          if (window.enqueueBib) {
+            const res = window.enqueueBib(bibNum);
+            ok = !!(res && res.ok);
+          }
+        } catch (_) { ok = false; }
+
         if (ok) {
           beep_();
           window.__CP1_LAST_QUEUED__ = text;
           window.__CP1_LAST_QUEUED_AT__ = now;
           window.__CP1_LAST_QUEUED_BIB__ = bibKey;
+          lastSeenBib_ = bibKey;
+          lastEnqueueAt_ = now;
           window.__CP1_ARMED__ = false; // ← ここが「入れっぱなし増殖」を止める本体
         }
 
@@ -621,6 +578,8 @@
       if (!hasQR) {
         if (!window.__CP1_ARMED__ && window.__CP1_LAST_SEEN_AT__ && (now - window.__CP1_LAST_SEEN_AT__) > 700) {
           window.__CP1_ARMED__ = true;
+          // 枠から外れたので、保険ガードもリセット気味に
+          lastSeenBib_ = "";
           if (statusEl) statusEl.textContent = "QR待ち";
         }
       }
