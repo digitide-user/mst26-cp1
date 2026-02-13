@@ -477,6 +477,8 @@
   init();
   // スキャン側からも利用できるよう公開
   window.enqueueBib = enqueueBib;
+  // 未送信UIの再描画関数も公開（スキャン成功時に即時反映させる）
+  window.refreshPendingUI = renderState;
 })();
 
 // ----- Camera UI + QR scan (CP1) -----
@@ -652,6 +654,8 @@
           lastSeenBib_ = bibKey;
           lastEnqueueAt_ = now;
           window.__CP1_ARMED__ = false; // ← ここが「入れっぱなし増殖」を止める本体
+          // 未送信UIを即時更新（手入力と同じ描画を共有）
+          try { if (window.refreshPendingUI) window.refreshPendingUI(); } catch(_) {}
         }
 
         // ステータス表示を enqueueBib の結果に合わせる
