@@ -39,6 +39,31 @@
     try { return JSON.parse(s); } catch { return fallback; }
   }
 
+  // 名簿: bib(String) -> name(String) のMapを作る
+  function getRosterNameMap_() {
+    try {
+      const raw = safeJsonParse(localStorage.getItem(KEY.roster) || "{}", {});
+      const list = Array.isArray(raw?.roster) ? raw.roster : (Array.isArray(raw) ? raw : []);
+      const map = new Map();
+      for (const it of list) {
+        if (!it || typeof it !== "object") continue;
+        const bibCand = it.bibNumber ?? it.bib;
+        const bibNum = parseInt(bibCand, 10);
+        if (!Number.isFinite(bibNum) || bibNum <= 0) continue;
+        const name = String(it.name ?? it.runnerName ?? it.fullName ?? "").trim();
+        map.set(String(bibNum), name);
+      }
+      return map;
+    } catch { return new Map(); }
+  }
+
+  function formatTimeHHMMSS_(isoLike) {
+    try {
+      const d = new Date(isoLike);
+      return d.toLocaleTimeString("ja-JP", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch { return "--:--:--"; }
+  }
+
   // 旧フォーマットも含め、アイテムから bib の数値文字列キーを抽出
   function extractBibKey(it) {
     const toNumStr = (v) => {
@@ -256,12 +281,15 @@
     const q = loadQueue();
     elPendingCount.textContent = String(q.length);
 
-    // 最新20件だけ表示
+    const nameMap = getRosterNameMap_();
     elPendingList.innerHTML = "";
     q.slice(-20).reverse().forEach((it) => {
+      const t = formatTimeHHMMSS_(it.scanned_at);
+      const bib = String(it.bibNumber);
+      const nm = nameMap.get(bib) || "";
       const li = document.createElement("li");
       li.className = "mono";
-      li.textContent = `${it.bibNumber} / ${it.scanned_at} / ${it.event_id.slice(0, 8)}…`;
+      li.textContent = nm ? `${t}  ${bib}  ${nm}` : `${t}  ${bib}`;
       elPendingList.appendChild(li);
     });
   }
@@ -271,10 +299,14 @@
     const q = loadQueue();
     elPendingCount.textContent = String(q.length);
     elPendingList.innerHTML = "";
+    const nameMap = getRosterNameMap_();
     q.slice(-20).reverse().forEach((it) => {
+      const t = formatTimeHHMMSS_(it.scanned_at);
+      const bib = String(it.bibNumber);
+      const nm = nameMap.get(bib) || "";
       const li = document.createElement("li");
       li.className = "mono";
-      li.textContent = `${it.bibNumber} / ${it.scanned_at} / ${it.event_id.slice(0, 8)}…`;
+      li.textContent = nm ? `${t}  ${bib}  ${nm}` : `${t}  ${bib}`;
       elPendingList.appendChild(li);
     });
   }
@@ -553,6 +585,7 @@
     localStorage.setItem(KEY.rosterAt, formatISOWithOffset(new Date()));
 
     elRosterResult.textContent = `更新OK: ${roster.length}件 / generated_at=${generatedAt}`;
+    try { renderPendingOnly_(); } catch(_) {}
   }
 
   // ===== Wire up =====
@@ -621,6 +654,7 @@
   function $(id) { return document.getElementById(id); }
 
   let audioCtx_ = null;
+  let statusTimer_ = null;
 
   function warmupAudio_() {
     try {
@@ -664,6 +698,18 @@
   
       o.start(now);
       o.stop(now + 0.11);
+    } catch (_) {}
+  }
+
+  function setStatusTemp_(msg, ms = 1000) {
+    try {
+      const statusEl = $("camStatus");
+      if (statusEl) statusEl.textContent = msg;
+      if (statusTimer_) clearTimeout(statusTimer_);
+      statusTimer_ = setTimeout(() => {
+        const el = $("camStatus");
+        if (el) el.textContent = "待機中…";
+      }, ms);
     } catch (_) {}
   }
 
@@ -745,22 +791,19 @@
           beep_();
           lastSeenBib_ = bibKey;
           lastEnqueueAt_ = now;
-          // 未送信UIを即時更新（手入力と同じ描画を共有）
           try { if (window.refreshPendingUI) window.refreshPendingUI(); } catch(_) {}
-        }
-
-        // ステータス表示を enqueueBib の結果に合わせる
-        if (statusEl) {
-          if (res && res.ok) {
-            statusEl.textContent = `追加: bib=${bibKey}`;
+          // 読取成功: 名簿があれば名前も表示
+          const nameMap = getRosterNameMap_();
+          const nm = nameMap.get(bibKey) || "";
+          setStatusTemp_(nm ? `読取: ${bibKey} ${nm}` : `読取: ${bibKey}`, 1000);
+        } else {
+          const reason = (res && res.reason) || "error";
+          if (reason === "duplicate" || reason === "locked") {
+            setStatusTemp_(`重複: ${bibKey}`, 1000);
+          } else if (reason === "invalid") {
+            setStatusTemp_("無効", 1000);
           } else {
-            const reason = (res && res.reason) || "error";
-            const msg =
-              reason === "duplicate" ? `重複: bib=${bibKey}` :
-              reason === "locked"    ? `ロック中: bib=${bibKey}` :
-              reason === "invalid"   ? `無効: ${text}` :
-              `追加失敗: bib=${bibKey} (${reason})`;
-            statusEl.textContent = msg;
+            setStatusTemp_(`追加失敗: ${bibKey}`, 1000);
           }
         }
       }
