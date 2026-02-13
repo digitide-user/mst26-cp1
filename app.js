@@ -565,18 +565,15 @@
     canvas.width = w;
     canvas.height = h;
 
-    try {
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      if (!vw || !vh) return;
-    
-      const side = Math.min(vw, vh);
-      const sx = Math.floor((vw - side) / 2);
-      const sy = Math.floor((vh - side) / 2);
-    
-      // videoの中央を正方形で切り出して、canvas(w×h)に描画
-      ctx.drawImage(video, sx, sy, side, side, 0, 0, w, h);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const side = Math.min(vw, vh);
+    const sx = Math.floor((vw - side) / 2);
+    const sy = Math.floor((vh - side) / 2);
+    ctx.drawImage(video, sx, sy, side, side, 0, 0, camCanvas.width, camCanvas.height);
 
+    try {
       const img = ctx.getImageData(0, 0, w, h);
       const qr = (window.jsQR)
         ? window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" })
