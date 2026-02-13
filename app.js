@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-12T22:50:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T00:05:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -592,13 +592,6 @@
       const qr = (window.jsQR)
         ? window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" })
         : null;
-
-      // 追加：一度読んだら「QRが枠から消えるまで」次を追加しない
-      if (window.__CP1_ARMED__ === undefined) window.__CP1_ARMED__ = true;
-      if (window.__CP1_LAST_SEEN_AT__ === undefined) window.__CP1_LAST_SEEN_AT__ = 0;
-      if (window.__CP1_LAST_QUEUED__ === undefined) window.__CP1_LAST_QUEUED__ = "";
-      if (window.__CP1_LAST_QUEUED_AT__ === undefined) window.__CP1_LAST_QUEUED_AT__ = 0;
-      if (window.__CP1_LAST_QUEUED_BIB__ === undefined) window.__CP1_LAST_QUEUED_BIB__ = "";
       
       const now = Date.now();
       const hasQR = !!(qr && qr.data);
@@ -610,31 +603,9 @@
         const bibNum = parseInt(bibRaw, 10);
         const bibKey = String(bibNum);
 
-        window.__CP1_LAST_SEEN_AT__ = now;
-
-        // すでに読んだ後は「枠から外す」まで追加しない（入れっぱなしで増殖しない）
-        if (!window.__CP1_ARMED__) {
-          if (statusEl) statusEl.textContent = "読取済み：QRを枠から外してください";
-          return;
-        }
-
-        // 読取直後の二重追加を抑える（0.8秒）
-        if (now - window.__CP1_LAST_QUEUED_AT__ < 800) {
-          if (statusEl) statusEl.textContent = "待機中…";
-          return;
-        }
-
-        if (window.__CP1_LAST_QUEUED_BIB__ === undefined) window.__CP1_LAST_QUEUED_BIB__ = "";
-
         // 追加の保険：同一QR保持中に連打しない
         if (bibKey === lastSeenBib_ && (now - lastEnqueueAt_) < ENQUEUE_COOLDOWN_MS) {
           if (statusEl) statusEl.textContent = "待機中…";
-          return;
-        }
-
-        // 同じbibは10分以内は重複追加しない（増殖防止の安全弁）
-        if (bibKey === window.__CP1_LAST_QUEUED_BIB__ && (now - window.__CP1_LAST_QUEUED_AT__) < 10 * 60 * 1000) {
-          if (statusEl) statusEl.textContent = `重複: ${bibKey}（外して次へ）`;
           return;
         }
 
@@ -648,12 +619,8 @@
 
         if (res && res.ok) {
           beep_();
-          window.__CP1_LAST_QUEUED__ = text;
-          window.__CP1_LAST_QUEUED_AT__ = now;
-          window.__CP1_LAST_QUEUED_BIB__ = bibKey;
           lastSeenBib_ = bibKey;
           lastEnqueueAt_ = now;
-          window.__CP1_ARMED__ = false; // ← ここが「入れっぱなし増殖」を止める本体
           // 未送信UIを即時更新（手入力と同じ描画を共有）
           try { if (window.refreshPendingUI) window.refreshPendingUI(); } catch(_) {}
         }
@@ -675,15 +642,7 @@
         return;
       }
 
-      // QRが「見えていない状態」が 0.7秒 続いたら再ARM（枠から外したら次が読める）
-      if (!hasQR) {
-        if (!window.__CP1_ARMED__ && window.__CP1_LAST_SEEN_AT__ && (now - window.__CP1_LAST_SEEN_AT__) > 700) {
-          window.__CP1_ARMED__ = true;
-          // 枠から外れたので、保険ガードもリセット気味に
-          lastSeenBib_ = "";
-          if (statusEl) statusEl.textContent = "QR待ち";
-        }
-      }
+      // ARMEDゲートを廃止したため、QR無し時の再ARM処理は不要
     } catch (e) {
       // 読み取り失敗は握りつぶして次フレームへ（止まるのが一番困る）
     }
