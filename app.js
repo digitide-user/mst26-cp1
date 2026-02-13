@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T01:02:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T01:20:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -266,6 +266,19 @@
     });
   }
 
+  // 未送信の件数/リストだけを更新（カメラDOM等は触らない）
+  function renderPendingOnly_() {
+    const q = loadQueue();
+    elPendingCount.textContent = String(q.length);
+    elPendingList.innerHTML = "";
+    q.slice(-20).reverse().forEach((it) => {
+      const li = document.createElement("li");
+      li.className = "mono";
+      li.textContent = `${it.bibNumber} / ${it.scanned_at} / ${it.event_id.slice(0, 8)}…`;
+      elPendingList.appendChild(li);
+    });
+  }
+
   function addToQueueFromInput() {
     const bib = parseBib(elInput.value);
     if (!bib) {
@@ -277,7 +290,7 @@
     if (!res.ok && res.reason === "duplicate") {
       elAddResult.textContent = `重複のため追加しません: bib=${bib}（未送信 ${res.length}）`;
       elInput.value = "";
-      renderState();
+      renderPendingOnly_();
       return;
     }
     if (!res.ok) {
@@ -287,7 +300,7 @@
 
     elAddResult.textContent = `追加しました: bib=${bib}（未送信 ${res.length}）`;
     elInput.value = "";
-    renderState();
+    renderPendingOnly_();
   }
 
   async function fetchJson(url, options, timeoutMs = 15000) {
@@ -375,8 +388,8 @@
       const doneSet = new Set([...accepted, ...ignored]);
       const nextQueue = q.filter((it) => !doneSet.has(it.event_id));
       saveQueue(nextQueue);
-  
-      renderState();
+
+      renderPendingOnly_();
   
       const removed = beforeLen - nextQueue.length;
   
@@ -409,11 +422,7 @@
     } catch (e) {
       elSyncResult.textContent = `全消去でエラー: ${String(e).slice(0, 120)}`;
     } finally {
-      try {
-        renderState();
-        // iOS対策：1フレーム後にビデオへ再接続（DOMが差し替わった場合でも映像継続）
-        try { if (window.reconnectCameraIfNeeded) window.reconnectCameraIfNeeded(); } catch(_) {}
-      } catch(_) {}
+      try { renderPendingOnly_(); } catch(_) {}
     }
   }
 
@@ -487,8 +496,8 @@
   init();
   // スキャン側からも利用できるよう公開
   window.enqueueBib = enqueueBib;
-  // 未送信UIの再描画関数も公開（スキャン成功時に即時反映させる）
-  window.refreshPendingUI = renderState;
+  // 未送信UIの再描画関数（カメラDOMには触らない）を公開
+  window.refreshPendingUI = renderPendingOnly_;
 })();
 
 // ----- Camera UI + QR scan (CP1) -----
@@ -569,17 +578,6 @@
     rafId = requestAnimationFrame(scanLoop);
   }
 
-  // DOMが差し替わった場合に、起動中の camStream を再度 video に接続する
-  function reconnectCameraIfNeeded_() {
-    try {
-      const video = $("camVideo");
-      if (camStream && video && video.srcObject !== camStream) {
-        video.srcObject = camStream;
-        const p = video.play && video.play();
-        if (p && typeof p.catch === "function") p.catch(() => {});
-      }
-    } catch (_) {}
-  }
 
   function scanLoop() {
     if (!scanning) return;
@@ -757,10 +755,5 @@
     stopBtn.addEventListener("click", stopCamera);
     stopBtn.disabled = true;
     statusEl.textContent = "未開始";
-    // 外部から再接続を呼べるよう公開（1フレーム後に実施）
-    window.reconnectCameraIfNeeded = () => {
-      try { requestAnimationFrame(() => reconnectCameraIfNeeded_()); }
-      catch (_) { reconnectCameraIfNeeded_(); }
-    };
   });
 })();
