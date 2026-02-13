@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T03:10:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T03:28:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -514,8 +514,10 @@
       // スナップショット対象IDに限定してキューから削除
       const doneSet = new Set([...accepted, ...ignored].filter((id) => snapshotIdSet.has(id)));
       if (doneSet.size > 0) {
-        const before = currentQ.length;
-        const nextQueue = currentQ.filter((it) => !doneSet.has(it.event_id));
+        // 重要: 削除直前に常に最新のキューを再読込し、同期中追加分を消さない
+        const latestQ = loadQueue();
+        const before = latestQ.length;
+        const nextQueue = latestQ.filter((it) => !doneSet.has(it.event_id));
         saveQueue(nextQueue);
         renderPendingOnly_();
         // バグ検知：対象が1件も消えない場合はサーバ応答異常の可能性
