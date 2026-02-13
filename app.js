@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T00:26:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T00:45:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -402,9 +402,15 @@
     }
     const ok = confirm(`未送信キューを全消去します（${q.length}件）。よいですか？`);
     if (!ok) return;
-    saveQueue([]);
-    elSyncResult.textContent = "全消去しました。";
-    renderState();
+    try {
+      saveQueue([]);
+      elSyncResult.textContent = "全消去しました。";
+      try { if (window.refreshPendingUI) window.refreshPendingUI(); } catch(_) {}
+    } catch (e) {
+      elSyncResult.textContent = `全消去でエラー: ${String(e).slice(0, 120)}`;
+    } finally {
+      try { renderState(); } catch(_) {}
+    }
   }
 
   async function updateRoster() {
