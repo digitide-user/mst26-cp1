@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T01:20:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T01:42:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -279,6 +279,109 @@
     });
   }
 
+  // ---- 非ブロッキング confirm モーダル（1回だけ生成して再利用） ----
+  let confirmModalEl_ = null;
+  let confirmModalMsgEl_ = null;
+  let confirmModalOkBtn_ = null;
+  let confirmModalCancelBtn_ = null;
+  let confirmModalInFlight_ = false;
+  let confirmModalPromise_ = null;
+  let confirmModalResolve_ = null;
+
+  function ensureConfirmModal_() {
+    if (confirmModalEl_) return;
+    const overlay = document.createElement("div");
+    overlay.id = "confirmModal";
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.background = "rgba(0,0,0,0.35)";
+    overlay.style.display = "none";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.zIndex = "9999";
+
+    const card = document.createElement("div");
+    card.style.background = "#fff";
+    card.style.borderRadius = "8px";
+    card.style.boxShadow = "0 6px 24px rgba(0,0,0,0.2)";
+    card.style.width = "min(90vw, 420px)";
+    card.style.maxWidth = "92vw";
+    card.style.padding = "16px";
+    card.style.fontFamily = "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif";
+
+    const msg = document.createElement("div");
+    msg.style.margin = "8px 0 16px";
+    msg.style.fontSize = "16px";
+    msg.style.lineHeight = "1.4";
+    msg.className = "mono";
+
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.gap = "12px";
+    row.style.justifyContent = "flex-end";
+
+    const btnCancel = document.createElement("button");
+    btnCancel.type = "button";
+    btnCancel.textContent = "キャンセル";
+
+    const btnOk = document.createElement("button");
+    btnOk.type = "button";
+    btnOk.textContent = "OK";
+    btnOk.style.background = "#d32f2f";
+    btnOk.style.color = "#fff";
+    btnOk.style.border = "none";
+    btnOk.style.padding = "8px 14px";
+    btnOk.style.borderRadius = "6px";
+
+    row.appendChild(btnCancel);
+    row.appendChild(btnOk);
+    card.appendChild(msg);
+    card.appendChild(row);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    const resolveOnce = (val) => {
+      if (!confirmModalInFlight_) return;
+      confirmModalInFlight_ = false;
+      overlay.style.display = "none";
+      try { if (confirmModalResolve_) confirmModalResolve_(val); } finally {
+        confirmModalPromise_ = null;
+        confirmModalResolve_ = null;
+      }
+    };
+
+    btnCancel.addEventListener("click", () => resolveOnce(false));
+    btnOk.addEventListener("click", () => resolveOnce(true));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) resolveOnce(false); });
+    document.addEventListener("keydown", (e) => {
+      if (!confirmModalInFlight_) return;
+      if (e.key === "Escape") resolveOnce(false);
+      if (e.key === "Enter") resolveOnce(true);
+    });
+
+    confirmModalEl_ = overlay;
+    confirmModalMsgEl_ = msg;
+    confirmModalOkBtn_ = btnOk;
+    confirmModalCancelBtn_ = btnCancel;
+  }
+
+  function confirmModal(message) {
+    ensureConfirmModal_();
+    // 二重起動を避ける（メッセージは上書きして同一インスタンスを再利用）
+    if (confirmModalInFlight_ && confirmModalPromise_) {
+      confirmModalMsgEl_.textContent = String(message || "");
+      return confirmModalPromise_;
+    }
+    confirmModalInFlight_ = true;
+    confirmModalMsgEl_.textContent = String(message || "");
+    confirmModalEl_.style.display = "flex";
+    // iOSでのフォーカス問題回避：明示的にボタンへフォーカスしない
+    confirmModalPromise_ = new Promise((resolve) => {
+      confirmModalResolve_ = resolve;
+    });
+    return confirmModalPromise_;
+  }
+
   function addToQueueFromInput() {
     const bib = parseBib(elInput.value);
     if (!bib) {
@@ -413,8 +516,8 @@
       elSyncResult.textContent = "未送信はありません。";
       return;
     }
-    const ok = confirm(`未送信キューを全消去します（${q.length}件）。よいですか？`);
-    if (!ok) return;
+    const ok = await confirmModal(`未送信キューを全消去します（${q.length}件）。よいですか？`);
+    if (!ok) { elSyncResult.textContent = "キャンセルしました。"; return; }
     try {
       saveQueue([]);
       elSyncResult.textContent = "全消去しました。";
