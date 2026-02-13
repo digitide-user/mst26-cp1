@@ -26,6 +26,30 @@
     #camVideo { width: 100%; aspect-ratio: 1 / 1; height: auto !important; max-height: none !important; object-fit: cover; background: #000; border-radius: 18px; display: block; }
     /* canvasは解析用なので表示しない（レイアウト崩れ防止） */
     #camCanvas { display: none; }
+
+    /* details の summary をボタン風に */
+    details > summary {
+      display: inline-block;
+      padding: 10px 14px;
+      background: #f3f4f6;
+      border: 1px solid #d1d5db;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+    /* marker を消す（Safari含む） */
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary::marker { content: ""; }
+    details[open] > summary { background: #e5e7eb; }
+
+    /* カメラのステータス表示は視認性UP */
+    #camStatus {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.6;
+      letter-spacing: 0.01em;
+    }
   </style>
 </head>
 <body>
