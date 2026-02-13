@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T00:05:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T00:26:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -555,6 +555,10 @@
     rafId = null;
   }
 
+  function scheduleNext_() {
+    rafId = requestAnimationFrame(scanLoop);
+  }
+
   function scanLoop() {
     if (!scanning) return;
 
@@ -562,44 +566,41 @@
     const canvas = $("camCanvas");
     const statusEl = $("camStatus");
 
-    if (!video || !canvas) {
-      rafId = requestAnimationFrame(scanLoop);
-      return;
-    }
-
-    // video の準備待ち
-    if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-      rafId = requestAnimationFrame(scanLoop);
-      return;
-    }
-
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-
-    canvas.width = w;
-    canvas.height = h;
-
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const side = Math.min(vw, vh);
-    const sx = Math.floor((vw - side) / 2);
-    const sy = Math.floor((vh - side) / 2);
-    ctx.drawImage(video, sx, sy, side, side, 0, 0, camCanvas.width, camCanvas.height);
-
     try {
+      if (!video || !canvas) return;
+
+      // video の準備待ち
+      if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+
+      canvas.width = w;
+      canvas.height = h;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const side = Math.min(vw, vh);
+      const sx = Math.floor((vw - side) / 2);
+      const sy = Math.floor((vh - side) / 2);
+      ctx.drawImage(video, sx, sy, side, side, 0, 0, camCanvas.width, camCanvas.height);
+
       const img = ctx.getImageData(0, 0, w, h);
       const qr = (window.jsQR)
         ? window.jsQR(img.data, w, h, { inversionAttempts: "dontInvert" })
         : null;
-      
+
       const now = Date.now();
       const hasQR = !!(qr && qr.data);
 
       if (hasQR) {
         const text = String(qr.data).trim();
         const bibRaw = extractBibFromQRText_(text);
-        if (!bibRaw) { if (statusEl) statusEl.textContent = `無効: ${text}`; return; }
+        if (!bibRaw) {
+          if (statusEl) statusEl.textContent = `無効: ${text}`;
+          return;
+        }
         const bibNum = parseInt(bibRaw, 10);
         const bibKey = String(bibNum);
 
@@ -639,15 +640,14 @@
             statusEl.textContent = msg;
           }
         }
-        return;
       }
 
       // ARMEDゲートを廃止したため、QR無し時の再ARM処理は不要
     } catch (e) {
       // 読み取り失敗は握りつぶして次フレームへ（止まるのが一番困る）
+    } finally {
+      scheduleNext_();
     }
-
-    rafId = requestAnimationFrame(scanLoop);
   }
 
   async function startCamera() {
