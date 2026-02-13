@@ -204,7 +204,7 @@
     const lastTs = __enqueueLock__[key] || 0;
     if (nowTs - lastTs < ENQUEUE_LOCK_MS) {
       const len = loadQueue().length;
-      return { ok: false, reason: "duplicate", length: len };
+      return { ok: false, reason: "locked", length: len };
     }
     __enqueueLock__[key] = nowTs;
 
@@ -504,7 +504,19 @@
       if (audioCtx_.state === "suspended") audioCtx_.resume();
     } catch (_) {}
   }
-  
+
+  // QRテキストから bib のみを抽出（優先: コロン後の数字 -> 末尾の数字）
+  function extractBibFromQRText_(raw) {
+    const t = String(raw || "");
+    // 優先: コロンの後ろの数字 MST26:7 / MST26:007
+    let m = t.match(/:\s*([0-9]{1,6})/);
+    if (m) return m[1];
+    // 次善: 末尾側の連続数字  ... -> 7 / 007
+    m = t.match(/([0-9]{1,6})\D*$/);
+    if (m) return m[1];
+    return null;
+  }
+
   function beep_() {
     try {
       warmupAudio_();
@@ -591,10 +603,9 @@
 
       if (hasQR) {
         const text = String(qr.data).trim();
-        // MST26:021 / MST26:21 / 021 / 21 を許容
-        let bibMatch = text.match(/MST26\s*:\s*0*([0-9]{1,6})/i) || text.match(/^0*(\d{1,6})$/);
-        if (!bibMatch) { if (statusEl) statusEl.textContent = `無効: ${text}`; return; }
-        const bibNum = parseInt(bibMatch[1], 10);
+        const bibRaw = extractBibFromQRText_(text);
+        if (!bibRaw) { if (statusEl) statusEl.textContent = `無効: ${text}`; return; }
+        const bibNum = parseInt(bibRaw, 10);
         const bibKey = String(bibNum);
 
         window.__CP1_LAST_SEEN_AT__ = now;
@@ -626,15 +637,14 @@
         }
 
         // UIクリック合成は行わず、直接 enqueueBib を呼ぶ
-        let ok = false;
+        let res = { ok: false, reason: "unknown" };
         try {
           if (window.enqueueBib) {
-            const res = window.enqueueBib(bibNum);
-            ok = !!(res && res.ok);
+            res = window.enqueueBib(bibNum);
           }
-        } catch (_) { ok = false; }
+        } catch (_) { res = { ok: false, reason: "error" }; }
 
-        if (ok) {
+        if (res && res.ok) {
           beep_();
           window.__CP1_LAST_QUEUED__ = text;
           window.__CP1_LAST_QUEUED_AT__ = now;
@@ -644,7 +654,20 @@
           window.__CP1_ARMED__ = false; // ← ここが「入れっぱなし増殖」を止める本体
         }
 
-        if (statusEl) statusEl.textContent = ok ? `読取: ${text} → 追加` : `読取: ${text}（追加失敗）`;
+        // ステータス表示を enqueueBib の結果に合わせる
+        if (statusEl) {
+          if (res && res.ok) {
+            statusEl.textContent = `追加: bib=${bibKey}`;
+          } else {
+            const reason = (res && res.reason) || "error";
+            const msg =
+              reason === "duplicate" ? `重複: bib=${bibKey}` :
+              reason === "locked"    ? `ロック中: bib=${bibKey}` :
+              reason === "invalid"   ? `無効: ${text}` :
+              `追加失敗: bib=${bibKey} (${reason})`;
+            statusEl.textContent = msg;
+          }
+        }
         return;
       }
 
