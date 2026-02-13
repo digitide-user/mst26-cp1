@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T01:42:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T02:05:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -654,7 +654,9 @@
   function $(id) { return document.getElementById(id); }
 
   let audioCtx_ = null;
-  let statusTimer_ = null;
+  // ステータス表示のホールド制御（表示が即座に上書きされないように）
+  let statusHoldUntil_ = 0;
+  let statusHoldTimer_ = null;
 
   function warmupAudio_() {
     try {
@@ -701,16 +703,44 @@
     } catch (_) {}
   }
 
+  function canOverwriteStatus_() {
+    return Date.now() >= statusHoldUntil_;
+  }
+
   function setStatusTemp_(msg, ms = 1000) {
     try {
       const statusEl = $("camStatus");
-      if (statusEl) statusEl.textContent = msg;
-      if (statusTimer_) clearTimeout(statusTimer_);
-      statusTimer_ = setTimeout(() => {
-        const el = $("camStatus");
-        if (el) el.textContent = "待機中…";
+      if (!statusEl) return;
+      const until = Date.now() + ms;
+      statusHoldUntil_ = until;
+      statusEl.textContent = msg;
+      if (statusHoldTimer_) clearTimeout(statusHoldTimer_);
+      statusHoldTimer_ = setTimeout(() => {
+        if (Date.now() >= statusHoldUntil_) {
+          const el = $("camStatus");
+          if (el) el.textContent = "待機中…";
+        }
       }, ms);
     } catch (_) {}
+  }
+
+  // 名簿から名前を引く（IIFE内に実装、ローカルストレージを直読）
+  function lookupNameFromRoster_(bibNum) {
+    try {
+      const raw = localStorage.getItem('mst26_cp1_v1_roster_cache');
+      const data = raw ? JSON.parse(raw) : null;
+      const list = Array.isArray(data?.roster) ? data.roster : (Array.isArray(data) ? data : []);
+      const n = parseInt(bibNum, 10);
+      for (const it of list) {
+        if (!it || typeof it !== 'object') continue;
+        const b = parseInt(it.bibNumber ?? it.bib, 10);
+        if (Number.isFinite(b) && b === n) {
+          const nm = String(it.name ?? it.runnerName ?? it.fullName ?? '').trim();
+          return nm;
+        }
+      }
+      return '';
+    } catch { return ''; }
   }
 
   // UIクリック合成のための探索/正規化関数は不要になりました（スキャンは enqueueBib を直接呼びます）
@@ -767,7 +797,7 @@
         const text = String(qr.data).trim();
         const bibRaw = extractBibFromQRText_(text);
         if (!bibRaw) {
-          if (statusEl) statusEl.textContent = `無効: ${text}`;
+          setStatusTemp_("無効", 1000);
           return;
         }
         const bibNum = parseInt(bibRaw, 10);
@@ -775,7 +805,7 @@
 
         // 追加の保険：同一QR保持中に連打しない
         if (bibKey === lastSeenBib_ && (now - lastEnqueueAt_) < ENQUEUE_COOLDOWN_MS) {
-          if (statusEl) statusEl.textContent = "待機中…";
+          if (canOverwriteStatus_()) { const el = $("camStatus"); if (el) el.textContent = "待機中…"; }
           return;
         }
 
@@ -793,8 +823,7 @@
           lastEnqueueAt_ = now;
           try { if (window.refreshPendingUI) window.refreshPendingUI(); } catch(_) {}
           // 読取成功: 名簿があれば名前も表示
-          const nameMap = getRosterNameMap_();
-          const nm = nameMap.get(bibKey) || "";
+          const nm = lookupNameFromRoster_(bibKey) || "";
           setStatusTemp_(nm ? `読取: ${bibKey} ${nm}` : `読取: ${bibKey}`, 1000);
         } else {
           const reason = (res && res.reason) || "error";
