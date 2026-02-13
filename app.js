@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T00:45:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T01:02:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -409,7 +409,11 @@
     } catch (e) {
       elSyncResult.textContent = `全消去でエラー: ${String(e).slice(0, 120)}`;
     } finally {
-      try { renderState(); } catch(_) {}
+      try {
+        renderState();
+        // iOS対策：1フレーム後にビデオへ再接続（DOMが差し替わった場合でも映像継続）
+        try { if (window.reconnectCameraIfNeeded) window.reconnectCameraIfNeeded(); } catch(_) {}
+      } catch(_) {}
     }
   }
 
@@ -563,6 +567,18 @@
 
   function scheduleNext_() {
     rafId = requestAnimationFrame(scanLoop);
+  }
+
+  // DOMが差し替わった場合に、起動中の camStream を再度 video に接続する
+  function reconnectCameraIfNeeded_() {
+    try {
+      const video = $("camVideo");
+      if (camStream && video && video.srcObject !== camStream) {
+        video.srcObject = camStream;
+        const p = video.play && video.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      }
+    } catch (_) {}
   }
 
   function scanLoop() {
@@ -741,5 +757,10 @@
     stopBtn.addEventListener("click", stopCamera);
     stopBtn.disabled = true;
     statusEl.textContent = "未開始";
+    // 外部から再接続を呼べるよう公開（1フレーム後に実施）
+    window.reconnectCameraIfNeeded = () => {
+      try { requestAnimationFrame(() => reconnectCameraIfNeeded_()); }
+      catch (_) { reconnectCameraIfNeeded_(); }
+    };
   });
 })();
