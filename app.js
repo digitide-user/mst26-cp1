@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T02:32:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T03:10:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -457,8 +457,8 @@
 
   async function syncBatch() {
     const api = getApiBase();
-    const q0 = loadQueue();
-    if (q0.length === 0) {
+    const snapshot = loadQueue();
+    if (snapshot.length === 0) {
       elSyncResult.textContent = "未送信はありません。";
       return;
     }
@@ -466,80 +466,73 @@
       elSyncResult.textContent = "オフラインのため送信できません。";
       return;
     }
-  
+
+    // 送信対象のスナップショットID集合（同期中に追加された分は対象外）
+    const snapshotIds = snapshot.map((it) => it && it.event_id).filter(Boolean);
+    const snapshotIdSet = new Set(snapshotIds);
+
+    // UI: 二重送信防止
+    try { if (elSyncBtn) elSyncBtn.disabled = true; } catch(_) {}
+
     elSyncResult.textContent = "送信中…";
-  
+
     const BATCH_SIZE = 10;
     let totalAccepted = 0;
     let totalIgnored = 0;
-  
-    // 収束ガード（無限ループ防止）
-    let guard = 0;
-  
-    while (true) {
-      guard++;
-      if (guard > 30) {
-        elSyncResult.textContent = "異常: 収束しません（30回試行）。サーバー応答を確認してください。";
-        return;
+
+    // スナップショット上のカーソルで処理（新規追加は巻き込まない）
+    for (let i = 0; i < snapshotIds.length; i += BATCH_SIZE) {
+      const idsSlice = snapshotIds.slice(i, i + BATCH_SIZE);
+
+      // 現時点のqueueから該当IDのアイテムだけ拾う（削除済みはスキップ）
+      const currentQ = loadQueue();
+      const pick = new Map(currentQ.map(it => [it.event_id, it]));
+      const batchItems = idsSlice.map(id => pick.get(id)).filter(Boolean);
+      if (batchItems.length === 0) {
+        // すでに送れている/消えている（手動操作など）場合は次へ
+        continue;
       }
-  
-      const q = loadQueue();
-      if (q.length === 0) break;
-  
-      const batch = q.slice(0, BATCH_SIZE);
+
       const payload = {
         action: "scan_batch",
-        scans: batch.map(({ event_id, station, bibNumber, scanned_at, device_id, operator }) => ({
-          event_id,
-          station,
-          bibNumber,
-          scanned_at,
-          device_id,
-          operator,
+        scans: batchItems.map(({ event_id, station, bibNumber, scanned_at, device_id, operator }) => ({
+          event_id, station, bibNumber, scanned_at, device_id, operator,
         })),
       };
-  
-      // Content-Typeはブラウザ側では付けない（プリフライト回避）
-      const res = await fetchJson(`${api}/scan_batch`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }, 15000);
-  
-      // ここで失敗は必ず見える化
+
+      const res = await fetchJson(`${api}/scan_batch`, { method: "POST", body: JSON.stringify(payload) }, 15000);
       if (!res.ok || !res.data) {
         elSyncResult.textContent = `送信失敗: HTTP ${res.status} / ${res.text.slice(0, 300)}`;
-        return;
+        break;
       }
-  
-      const accepted = Array.isArray(res.data.accepted_event_ids) ? res.data.accepted_event_ids : [];
-      const ignored = Array.isArray(res.data.ignored_event_ids) ? res.data.ignored_event_ids : [];
-  
-      totalAccepted += accepted.length;
-      totalIgnored += ignored.length;
-  
-      const beforeLen = q.length;
-  
-      // accepted + ignored をキューから除外（両方 “done”）
-      const doneSet = new Set([...accepted, ...ignored]);
-      const nextQueue = q.filter((it) => !doneSet.has(it.event_id));
-      saveQueue(nextQueue);
 
-      renderPendingOnly_();
-  
-      const removed = beforeLen - nextQueue.length;
-  
-      // ★ここが超重要：1件も減らないなら、応答がおかしいので止める
-      if (removed === 0) {
-        elSyncResult.textContent =
-          "収束しません（0件も消えない）。" +
-          " サーバーが event_id を返していない/scan_batchが無効の可能性。 " +
-          `resp=${JSON.stringify(res.data).slice(0, 500)}`;
-        return;
+      const accepted = Array.isArray(res.data.accepted_event_ids) ? res.data.accepted_event_ids : [];
+      const ignored  = Array.isArray(res.data.ignored_event_ids) ? res.data.ignored_event_ids : [];
+      totalAccepted += accepted.length;
+      totalIgnored  += ignored.length;
+
+      // スナップショット対象IDに限定してキューから削除
+      const doneSet = new Set([...accepted, ...ignored].filter((id) => snapshotIdSet.has(id)));
+      if (doneSet.size > 0) {
+        const before = currentQ.length;
+        const nextQueue = currentQ.filter((it) => !doneSet.has(it.event_id));
+        saveQueue(nextQueue);
+        renderPendingOnly_();
+        // バグ検知：対象が1件も消えない場合はサーバ応答異常の可能性
+        const removed = before - nextQueue.length;
+        if (removed === 0) {
+          elSyncResult.textContent =
+            "収束しません（0件も消えない）。" +
+            " サーバーが event_id を返していない/scan_batchが無効の可能性。 " +
+            `resp=${JSON.stringify(res.data).slice(0, 500)}`;
+          break;
+        }
       }
     }
-  
-    elSyncResult.textContent =
-      `同期完了: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${loadQueue().length}`;
+
+    elSyncResult.textContent = `同期完了: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${loadQueue().length}`;
+
+    try { if (elSyncBtn) elSyncBtn.disabled = false; } catch(_) {}
   }
 
   async function clearQueue() {
