@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T03:55:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-13T04:12:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -34,6 +34,22 @@
   const elRosterBtn = $("rosterBtn");
   const elRosterResult = $("rosterResult");
   const elLastSyncError = $("lastSyncError");
+
+  function setLastSyncError_(msg) {
+    try {
+      const row = document.getElementById("lastSyncErrorRow");
+      const el = document.getElementById("lastSyncError");
+      if (!row || !el) return;
+      const s = String(msg || "");
+      if (s) {
+        row.style.display = "";
+        el.textContent = s;
+      } else {
+        row.style.display = "none";
+        el.textContent = "";
+      }
+    } catch (_) {}
+  }
 
   // ===== Helpers =====
   function safeJsonParse(s, fallback) {
@@ -474,6 +490,7 @@
 
     // UI: 二重送信防止
     try { if (elSyncBtn) elSyncBtn.disabled = true; } catch(_) {}
+    setLastSyncError_("");
 
     elSyncResult.textContent = "送信中…";
     let syncFailed = false;
@@ -542,17 +559,17 @@
     // 成果の表示と詳細エラー
     if (syncFailed) {
       elSyncResult.textContent = `送信できませんでした（再試行してください） 残り=${loadQueue().length}`;
-      if (elLastSyncError) elLastSyncError.textContent = lastErrMsg;
+      setLastSyncError_(lastErrMsg);
       return;
     }
     if (syncUncertain) {
       elSyncResult.textContent = `送信結果を確認できません（再試行してください） 残り=${loadQueue().length}`;
-      if (elLastSyncError) elLastSyncError.textContent = lastErrMsg;
+      setLastSyncError_(lastErrMsg);
       return;
     }
 
     elSyncResult.textContent = `同期完了: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${loadQueue().length}`;
-    if (elLastSyncError) elLastSyncError.textContent = "";
+    setLastSyncError_("");
   }
 
   async function clearQueue() {

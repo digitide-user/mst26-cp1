@@ -65,7 +65,10 @@
           <div class="status" id="netStatus">状態: 読み込み中…</div>
           <div class="status">API: <span class="mono" id="apiBase">(未設定)</span></div>
           <div class="status">端末ID: <span class="mono" id="deviceId">(未設定)</span> / operator: <span class="mono" id="operator">(未設定)</span></div>
-          <div class="status mono" id="lastSyncError"></div>
+          <div id="lastSyncErrorRow" class="status" style="display:none;">
+            <span class="kv-label">同期エラー:</span>
+            <span id="lastSyncError" class="kv-value mono"></span>
+          </div>
         </div>
       </details>
     </div>
