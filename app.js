@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-14T00:08:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-14T01:02:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -561,9 +561,9 @@
     if (syncFailed || syncUncertain) {
       setLastSyncError_(lastErrMsg);
       if (remaining > 0) {
-        elSyncResult.textContent = `同期終了（要再試行）: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${remaining} → 再試行してください`;
+        elSyncResult.textContent = `同期終了（未送信あり）: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${remaining}`;
       } else {
-        elSyncResult.textContent = `同期終了（注意）: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=0`;
+        elSyncResult.textContent = `同期終了（未送信疑いあり）: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=0`;
       }
       return;
     }
