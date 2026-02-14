@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-14T01:02:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-14T02:40:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -11,7 +11,9 @@
     queue: STORAGE_PREFIX + "queue",
     roster: STORAGE_PREFIX + "roster_cache",
     rosterAt: STORAGE_PREFIX + "roster_at",
+    rosterUpdatedAt: STORAGE_PREFIX + "roster_updated_at",
   };
+  const ROSTER_TTL_MS = 24 * 60 * 60 * 1000;
 
   // ===== DOM =====
   const $ = (id) => document.getElementById(id);
@@ -56,8 +58,34 @@
     try { return JSON.parse(s); } catch { return fallback; }
   }
 
+  // 名簿キャッシュTTLチェック（期限切れなら削除）
+  function purgeRosterIfExpired_() {
+    try {
+      const tsStr = localStorage.getItem(KEY.rosterUpdatedAt);
+      let ts = tsStr ? parseInt(tsStr, 10) : NaN;
+      if (!Number.isFinite(ts)) {
+        const iso = localStorage.getItem(KEY.rosterAt);
+        if (iso) {
+          const d = new Date(iso);
+          const t = d.getTime();
+          if (Number.isFinite(t)) ts = t;
+        }
+      }
+      if (!Number.isFinite(ts)) return false;
+      const now = Date.now();
+      if (now - ts > ROSTER_TTL_MS) {
+        localStorage.removeItem(KEY.roster);
+        localStorage.removeItem(KEY.rosterAt);
+        localStorage.removeItem(KEY.rosterUpdatedAt);
+        return true;
+      }
+      return false;
+    } catch (_) { return false; }
+  }
+
   // 名簿: bib(String) -> name(String) のMapを作る
   function getRosterNameMap_() {
+    purgeRosterIfExpired_();
     try {
       const raw = safeJsonParse(localStorage.getItem(KEY.roster) || "{}", {});
       const list = Array.isArray(raw?.roster) ? raw.roster : (Array.isArray(raw) ? raw : []);
@@ -613,6 +641,7 @@
 
     localStorage.setItem(KEY.roster, JSON.stringify(res.data));
     localStorage.setItem(KEY.rosterAt, formatISOWithOffset(new Date()));
+    localStorage.setItem(KEY.rosterUpdatedAt, String(Date.now()));
 
     elRosterResult.textContent = `更新OK: ${roster.length}件 / generated_at=${generatedAt}`;
     try { renderPendingOnly_(); } catch(_) {}
@@ -620,6 +649,8 @@
 
   // ===== Wire up =====
   function init() {
+    // 起動時に名簿TTLを確認し、期限切れならパージ
+    purgeRosterIfExpired_();
     renderNet();
     renderState();
     // BUILD版本をフッター的に表示
@@ -756,6 +787,7 @@
 
   // 名簿から名前を引く（IIFE内に実装、ローカルストレージを直読）
   function lookupNameFromRoster_(bibNum) {
+    purgeRosterIfExpired_();
     try {
       const raw = localStorage.getItem('mst26_cp1_v1_roster_cache');
       const data = raw ? JSON.parse(raw) : null;
