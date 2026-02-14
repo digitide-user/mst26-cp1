@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-14T04:05:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-14T04:25:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -695,6 +695,8 @@
   window.enqueueBib = enqueueBib;
   // 未送信UIの再描画関数（カメラDOMには触らない）を公開
   window.refreshPendingUI = renderPendingOnly_;
+  // 名簿TTLパージ関数を公開（カメラ側から安全に呼び出すため）
+  window.purgeRosterIfExpired_ = purgeRosterIfExpired_;
 })();
 
 // ----- Camera UI + QR scan (CP1) -----
@@ -787,7 +789,7 @@
 
   // 名簿から名前を引く（IIFE内に実装、ローカルストレージを直読）
   function lookupNameFromRoster_(bibNum) {
-    purgeRosterIfExpired_();
+    try { if (window.purgeRosterIfExpired_) window.purgeRosterIfExpired_(); } catch (_) {}
     try {
       const raw = localStorage.getItem('mst26_cp1_v1_roster_cache');
       const data = raw ? JSON.parse(raw) : null;
