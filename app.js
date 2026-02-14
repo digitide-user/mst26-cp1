@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-13T04:12:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-14T00:08:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -556,19 +556,19 @@
       try { if (elSyncBtn) elSyncBtn.disabled = false; } catch(_) {}
     }
 
-    // 成果の表示と詳細エラー
-    if (syncFailed) {
-      elSyncResult.textContent = `送信できませんでした（再試行してください） 残り=${loadQueue().length}`;
+    // 成果の表示（統一メッセージ）と詳細エラー
+    const remaining = loadQueue().length;
+    if (syncFailed || syncUncertain) {
       setLastSyncError_(lastErrMsg);
-      return;
-    }
-    if (syncUncertain) {
-      elSyncResult.textContent = `送信結果を確認できません（再試行してください） 残り=${loadQueue().length}`;
-      setLastSyncError_(lastErrMsg);
+      if (remaining > 0) {
+        elSyncResult.textContent = `同期終了（要再試行）: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${remaining} → 再試行してください`;
+      } else {
+        elSyncResult.textContent = `同期終了（注意）: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=0`;
+      }
       return;
     }
 
-    elSyncResult.textContent = `同期完了: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${loadQueue().length}`;
+    elSyncResult.textContent = `同期終了: 受理=${totalAccepted}, 重複=${totalIgnored}, 残り=${remaining}`;
     setLastSyncError_("");
   }
 
