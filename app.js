@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-14T02:40:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-14T04:05:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
@@ -859,7 +859,7 @@
         const text = String(qr.data).trim();
         const bibRaw = extractBibFromQRText_(text);
         if (!bibRaw) {
-          setStatusTemp_("無効", 1000);
+          try { requestAnimationFrame(() => setStatusTemp_("無効", 1000)); } catch (_) { setStatusTemp_("無効", 1000); }
           return;
         }
         const bibNum = parseInt(bibRaw, 10);
@@ -886,15 +886,16 @@
           try { if (window.refreshPendingUI) window.refreshPendingUI(); } catch(_) {}
           // 読取成功: 名簿があれば名前も表示
           const nm = lookupNameFromRoster_(bibKey) || "";
-          setStatusTemp_(nm ? `読取: ${bibKey} ${nm}` : `読取: ${bibKey}`, 1000);
+          try { requestAnimationFrame(() => setStatusTemp_(nm ? `読取: ${bibKey} ${nm}` : `読取: ${bibKey}`, 1000)); }
+          catch (_) { setStatusTemp_(nm ? `読取: ${bibKey} ${nm}` : `読取: ${bibKey}`, 1000); }
         } else {
           const reason = (res && res.reason) || "error";
           if (reason === "duplicate" || reason === "locked") {
-            setStatusTemp_(`重複: ${bibKey}`, 1000);
+            try { requestAnimationFrame(() => setStatusTemp_(`重複: ${bibKey}`, 1000)); } catch (_) { setStatusTemp_(`重複: ${bibKey}`, 1000); }
           } else if (reason === "invalid") {
-            setStatusTemp_("無効", 1000);
+            try { requestAnimationFrame(() => setStatusTemp_("無効", 1000)); } catch (_) { setStatusTemp_("無効", 1000); }
           } else {
-            setStatusTemp_(`追加失敗: ${bibKey}`, 1000);
+            try { requestAnimationFrame(() => setStatusTemp_(`追加失敗: ${bibKey}`, 1000)); } catch (_) { setStatusTemp_(`追加失敗: ${bibKey}`, 1000); }
           }
         }
       }
