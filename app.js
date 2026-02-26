@@ -334,12 +334,7 @@
       const nm = nameMap.get(bib) || "";
       const li = document.createElement("li");
       li.className = "mono";
-      try {
-        const cat = lookupCategoryFromRoster(bib) || "";
-        li.textContent = nm ? `${t}  ${bib}  ${nm}${cat ? ` / ${cat}` : ''}` : `${t}  ${bib}${cat ? ` / ${cat}` : ''}`;
-      } catch(_) {
-        li.textContent = nm ? `${t}  ${bib}  ${nm}` : `${t}  ${bib}`;
-      }
+      li.textContent = nm ? `${t}  ${bib}  ${nm}` : `${t}  ${bib}`;
       elPendingList.appendChild(li);
     });
   }
@@ -356,12 +351,7 @@
       const nm = nameMap.get(bib) || "";
       const li = document.createElement("li");
       li.className = "mono";
-      try {
-        const cat = lookupCategoryFromRoster(bib) || "";
-        li.textContent = nm ? `${t}  ${bib}  ${nm}${cat ? ` / ${cat}` : ''}` : `${t}  ${bib}${cat ? ` / ${cat}` : ''}`;
-      } catch(_) {
-        li.textContent = nm ? `${t}  ${bib}  ${nm}` : `${t}  ${bib}`;
-      }
+      li.textContent = nm ? `${t}  ${bib}  ${nm}` : `${t}  ${bib}`;
       elPendingList.appendChild(li);
     });
   }
@@ -765,7 +755,7 @@
   
       // ポップ防止：0→上げる→下げる（短いエンベロープ）
       g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.24, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.18, now + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
   
       o.connect(g);
@@ -811,26 +801,6 @@
         if (Number.isFinite(b) && b === n) {
           const nm = String(it.name ?? it.runnerName ?? it.fullName ?? '').trim();
           return nm;
-        }
-      }
-      return '';
-    } catch { return ''; }
-  }
-
-  // bibからカテゴリ名を取得（名簿キャッシュを参照）
-  function lookupCategoryFromRoster(bibNum) {
-    try { if (window.purgeRosterIfExpired_) window.purgeRosterIfExpired_(); } catch (_) {}
-    try {
-      const raw = localStorage.getItem('mst26_cp1_v1_roster_cache');
-      const data = raw ? JSON.parse(raw) : null;
-      const list = Array.isArray(data?.roster) ? data.roster : (Array.isArray(data) ? data : []);
-      const n = parseInt(bibNum, 10);
-      for (const it of list) {
-        if (!it || typeof it !== 'object') continue;
-        const b = parseInt(it.bibNumber ?? it.bib, 10);
-        if (Number.isFinite(b) && b === n) {
-          const cat = String(it.category ?? '').trim();
-          return cat;
         }
       }
       return '';
