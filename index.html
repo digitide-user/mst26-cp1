@@ -153,10 +153,10 @@
   <script>
     // Service Worker（次のステップで sw.js を追加したら有効化される）
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js").catch(() => {});
+      navigator.serviceWorker.register("./sw.js?v=20260226-1").catch(() => {});
     }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
-  <script src="./app.js"></script>
+  <script src="./app.js?v=20260226-1"></script>
 </body>
 </html>
