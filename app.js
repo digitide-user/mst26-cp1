@@ -765,7 +765,7 @@
   
       // ポップ防止：0→上げる→下げる（短いエンベロープ）
       g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(0.35, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.24, now + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
   
       o.connect(g);
@@ -829,7 +829,7 @@
         if (!it || typeof it !== 'object') continue;
         const b = parseInt(it.bibNumber ?? it.bib, 10);
         if (Number.isFinite(b) && b === n) {
-          const cat = String(it.category ?? it.categoryName ?? it.division ?? '').trim();
+          const cat = String(it.category ?? '').trim();
           return cat;
         }
       }
