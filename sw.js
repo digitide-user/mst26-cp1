@@ -1,4 +1,4 @@
-const CACHE_NAME = "mst26-cp1-cache-v4"; // v1->v2->v3->v4 と上げて旧キャッシュを確実に捨てる
+const CACHE_NAME = "mst26-cp1-cache-v3"; // v1->v2->v3 と上げて旧キャッシュを確実に捨てる
 
 const CORE = [
   "./",

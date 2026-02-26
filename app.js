@@ -2,7 +2,7 @@
   // ===== Config =====
   const DEFAULT_API_BASE = "https://mst26-cp1-proxy.work-d3c.workers.dev"; // あなたのWorkers
   const STORAGE_PREFIX = "mst26_cp1_v1_";
-  const BUILD_VERSION = "build: 2026-02-26T13:30:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
+  const BUILD_VERSION = "build: 2026-02-14T04:25:00Z"; // 表示用の版本タグ（キャッシュ切り分け用）
   const KEY = {
     apiBase: STORAGE_PREFIX + "api_base",
     deviceId: STORAGE_PREFIX + "device_id",
